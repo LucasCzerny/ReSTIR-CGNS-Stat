@@ -189,6 +189,8 @@ private:
         float    normalBeta = 8.0f;                 ///< β: exponent on the normal compatibility term max(n·n', 0)^β.
         bool     useEarlyStopping = true;           ///< Stop sampling early when a candidate scores ≥ earlyStopCutoff.
         float    earlyStopCutoff = 0.5f;            ///< Score threshold for early stopping.
+        Metric   metric = Metric::Geometry;         ///< Which parameters of the reservoir should be used to measure neighbor similarity.
+        // TODOLC: selectionMethod
     };
 
     // Configuration
@@ -283,6 +285,7 @@ private:
     // CGNS — Neighbor G-buffer (written once per frame before the spatial iteration loop)
     ref<Texture>                    mpCgnsGBuffer;                ///< RGBA16F: (world normal xyz, camera-to-surface distance). dist==0 → env hit.
     ref<ComputePass>                mpGenerateCGNSGBufferPass;
+    ref<Buffer>                     mpCgnsParamsBuffer; // TODOLC description
 
     void generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& renderData);
 

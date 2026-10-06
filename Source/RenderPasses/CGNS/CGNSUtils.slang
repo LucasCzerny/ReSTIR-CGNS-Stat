@@ -22,7 +22,7 @@ float computeNeighborScale(float solidAngle, float dist)
     return max(EPSILON, sqrt(solidAngle / kPi) * dist);
 }
 
-float computeNeighborWeight(
+float computeNeighborWeightGeometry(
     bool   queryValid,
     bool   candidateValid,
     float3 queryPos,
@@ -33,15 +33,33 @@ float computeNeighborWeight(
     float  normalBeta  // β: exponent on the normal compatibility term
 )
 {
-    // Special handling for invalid hits (e.g. environment maps)
-    if (!queryValid && !candidateValid)
-        return 1.0f;   // both env map hits — encourage reuse
-
-    if (!queryValid || !candidateValid)
-        return EPSILON; // one surface, one env map — discourage
-
     float positionScore = exp(-distance(queryPos, candidatePos) / scale);
     float normalScore   = max(0.0f, dot(queryNormal, candidateNormal));
 
     return clamp(positionScore * pow(normalScore, normalBeta), EPSILON, 1.0f);
+}
+
+static const float3 kLuminanceWeights = float3(0.2126f, 0.7152f, 0.0722f);
+
+float computeNeighborWeightIntegrand(
+    bool   queryValid,
+    bool   candidateValid,
+    float3 queryPos,
+    float3 queryIntegrand,
+    float3 candidatePos,
+    float3 candidateIntegrand,
+    float  scale,       // s = sqrt(Ω/π) * queryDist
+    float  exponent
+)
+{
+    float queryLuminance = dot(max(queryIntegrand, 0.0f), kLuminanceWeights);
+    float candidateLuminance = dot(max(candidateIntegrand, 0.0f), kLuminanceWeights);
+
+    float relativeDiff = abs(queryLuminance - candidateLuminance) / (queryLuminance + candidateLuminance + EPSILON);
+
+    float integrandScore = pow(1.0f - relativeDiff, exponent);
+
+    float positionScore = exp(-distance(queryPos, candidatePos) / scale);
+
+    return clamp(positionScore * integrandScore, EPSILON, 1.0f);
 }

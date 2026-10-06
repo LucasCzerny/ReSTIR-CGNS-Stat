@@ -25,7 +25,7 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
- 
+
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
 
@@ -58,6 +58,18 @@ FALCOR_ENUM_INFO(MISHeuristic, {
     { MISHeuristic::PowerExp, "PowerExp" },
 });
 FALCOR_ENUM_REGISTER(MISHeuristic);
+
+enum class Metric : uint32_t
+{
+    Geometry = 0,
+    Integrand = 1,
+};
+
+FALCOR_ENUM_INFO(Metric, {
+    { Metric::Geometry, "Geometry" },
+    { Metric::Integrand, "Integrand" },
+});
+FALCOR_ENUM_REGISTER(Metric);
 
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.

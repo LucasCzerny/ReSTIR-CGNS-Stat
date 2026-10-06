@@ -655,6 +655,9 @@ bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
 
             if (auto cgns = spatial.group("CGNS Neighbor Selection", false))
             {
+                dirty |= cgns.dropdown("Metric", mReSTIRParams.metric);
+                cgns.tooltip("Which metric to use for candidate scoring.", true);
+
                 dirty |= cgns.var("Candidate Count (K)", mReSTIRParams.neighborCandidateCount, 1u, 128u);
                 cgns.tooltip("Number of disk candidates scored per pixel per iteration.", true);
 
@@ -1400,6 +1403,7 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
     }
 
     // CGNS G-buffer: one RGBA16F texel per pixel, (world normal xyz, cam-dist).
+    // TODOLC generate multiple CpgnsGBuffers for different purposes?
     if (mReSTIRParams.enableSpatialResampling)
     {
         if (!mpCgnsGBuffer ||
@@ -2103,6 +2107,8 @@ void CGNS::generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& 
     var["params"].setBlob(mParams);
     var["vbuffer"]               = renderData.getTexture(kInputVBuffer);
     var["cgnsGBuffer"]           = mpCgnsGBuffer;
+    var["currReservoirs"]        = mpCurrReservoirs;
+    var["gMetric"]               = (int)mReSTIRParams.metric;
     mpGenerateCGNSGBufferPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
 
@@ -2125,6 +2131,8 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     var["gNormalBeta"]             = mReSTIRParams.normalBeta;
     var["gUseEarlyStopping"]       = mReSTIRParams.useEarlyStopping;
     var["gEarlyStopCutoff"]        = mReSTIRParams.earlyStopCutoff;
+    var["gMetric"]                 = (int)mReSTIRParams.metric;
+    // TODOLC metricToTrack, selectionMethod
 
     mpSelectNeighborsPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
