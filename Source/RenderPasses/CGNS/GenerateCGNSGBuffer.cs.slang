@@ -18,9 +18,9 @@ struct GenerateCGNSGBuffer
     PathTracerParams params;
 
     Texture2D<PackedHitInfo> vbuffer;
-    RWTexture2D<float4>      cgnsGBuffer;  // Output: (world normal xyz, cam-dist)
+    RWTexture2D<float4> cgnsGeometryGBuffer;
+    RWTexture2D<float4> cgnsIntegrandGBuffer;
     RWStructuredBuffer<PathReservoir> currReservoirs;
-    int gMetric;
 
     void execute(const uint2 pixel)
     {
@@ -30,7 +30,7 @@ struct GenerateCGNSGBuffer
 
         if (!hit.isValid())
         {
-            cgnsGBuffer[pixel] = float4(0, 0, 0, 0);  // dist == 0 -> env hit
+            cgnsGeometryGBuffer[pixel] = float4(0, 0, 0, 0);  // dist == 0 -> env hit
             return;
         }
 
@@ -39,23 +39,17 @@ struct GenerateCGNSGBuffer
         ShadingData sd = loadShadingData(hit, cameraPos, rayDir);
         float posDist = distance(cameraPos, sd.posW);
 
-        switch (Metric(gMetric))
-        {
-        case Metric::Geometry:
-            cgnsGBuffer[pixel] = float4(sd.frame.N, posDist);
-            break;
-        case Metric::Integrand:
-            const uint32_t reservoirIdx = params.linearizePixel(pixel);
-            PathReservoir reservoir = currReservoirs[reservoirIdx];
+        cgnsGeometryGBuffer[pixel] = float4(sd.frame.N, posDist);
 
-            float3 integrand = float3(0.0);
-            if (reservoir.totalWeight > 0.0f) {
-                integrand = reservoir.integrand;
-            }
+        const uint32_t reservoirIdx = params.linearizePixel(pixel);
+        PathReservoir reservoir = currReservoirs[reservoirIdx];
 
-            cgnsGBuffer[pixel] = float4(integrand, posDist);
-            break;
-		}
+        float3 integrand = float3(0.0);
+        if (reservoir.totalWeight > 0.0f) {
+            integrand = reservoir.integrand;
+        }
+
+        cgnsIntegrandGBuffer[pixel] = float4(integrand, posDist);
     }
 }
 

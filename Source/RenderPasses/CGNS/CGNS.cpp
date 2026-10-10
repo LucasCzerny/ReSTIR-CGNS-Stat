@@ -655,8 +655,11 @@ bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
 
             if (auto cgns = spatial.group("CGNS Neighbor Selection", false))
             {
-                dirty |= cgns.dropdown("Metric", mReSTIRParams.metric);
-                cgns.tooltip("Which metric to use for candidate scoring.", true);
+                dirty |= cgns.checkbox("Enable Geometry Selection", mReSTIRParams.enableGeometrySelection);
+                cgns.tooltip("Use the normal and position from the gbuffer to help select neighbor reservoirs", true);
+
+                dirty |= cgns.checkbox("Enable Luminosity Selection", mReSTIRParams.enableLuminositySelection);
+                cgns.tooltip("Use the luminosity calculated from the reservoir's integrand to help select neighbor reservoirs", true);
 
                 dirty |= cgns.var("Candidate Count (K)", mReSTIRParams.neighborCandidateCount, 1u, 128u);
                 cgns.tooltip("Number of disk candidates scored per pixel per iteration.", true);
@@ -894,7 +897,7 @@ CGNS::TracePass::TracePass(ref<Device> pDevice, const std::string& filename, con
             auto scatterShaderID = desc.addHitGroup("scatterTriangleClosestHit", "scatterTriangleAnyHit", "", typeConformances, to_string(materialType));
             pBindingTable->setHitGroup(kRayTypeScatter, geometryIDs, scatterShaderID);
 
-            auto shadowShaderID =desc.addHitGroup("", "shadowTriangleAnyHit", "", typeConformances, to_string(materialType));
+            auto shadowShaderID = desc.addHitGroup("", "shadowTriangleAnyHit", "", typeConformances, to_string(materialType));
             pBindingTable->setHitGroup(kRayTypeShadow, geometryIDs, shadowShaderID);
         }
 
@@ -1403,14 +1406,13 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
     }
 
     // CGNS G-buffer: one RGBA16F texel per pixel, (world normal xyz, cam-dist).
-    // TODOLC generate multiple CpgnsGBuffers for different purposes?
     if (mReSTIRParams.enableSpatialResampling)
     {
-        if (!mpCgnsGBuffer ||
-            mpCgnsGBuffer->getWidth()  != mParams.frameDim.x ||
-            mpCgnsGBuffer->getHeight() != mParams.frameDim.y)
+        if (!mpCgnsGeometryGBuffer ||
+            mpCgnsGeometryGBuffer->getWidth()  != mParams.frameDim.x ||
+            mpCgnsGeometryGBuffer->getHeight() != mParams.frameDim.y)
         {
-            mpCgnsGBuffer = mpDevice->createTexture2D(
+            mpCgnsGeometryGBuffer = mpDevice->createTexture2D(
                 mParams.frameDim.x,
                 mParams.frameDim.y,
                 ResourceFormat::RGBA16Float,
@@ -1421,7 +1423,28 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
     }
     else
     {
-        mpCgnsGBuffer = nullptr;
+        mpCgnsGeometryGBuffer = nullptr;
+    }
+
+    // CGNS G-buffer: one RGBA16F texel per pixel, (integrand rgb, cam-dist).
+    if (mReSTIRParams.enableSpatialResampling)
+    {
+        if (!mpCgnsIntegrandGBuffer ||
+            mpCgnsIntegrandGBuffer->getWidth()  != mParams.frameDim.x ||
+            mpCgnsIntegrandGBuffer->getHeight() != mParams.frameDim.y)
+        {
+            mpCgnsIntegrandGBuffer = mpDevice->createTexture2D(
+                mParams.frameDim.x,
+                mParams.frameDim.y,
+                ResourceFormat::RGBA16Float,
+                1, 1, nullptr,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+        }
+    }
+    else
+    {
+        mpCgnsIntegrandGBuffer = nullptr;
     }
 
     // CGNS — neighbor selection buffer: M int2s per pixel (stride = neighborCount).
@@ -2105,10 +2128,10 @@ void CGNS::generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& 
     mpScene->bindShaderData(rootVar["gScene"]);
     auto var = rootVar["CB"]["gGenerateCGNSGBuffer"];
     var["params"].setBlob(mParams);
-    var["vbuffer"]               = renderData.getTexture(kInputVBuffer);
-    var["cgnsGBuffer"]           = mpCgnsGBuffer;
-    var["currReservoirs"]        = mpCurrReservoirs;
-    var["gMetric"]               = (int)mReSTIRParams.metric;
+    var["vbuffer"] = renderData.getTexture(kInputVBuffer);
+    var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
+    var["cgnsIntegrandGBuffer"]      = mpCgnsIntegrandGBuffer;
+    var["currReservoirs"]            = mpCurrReservoirs;
     mpGenerateCGNSGBufferPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
 
@@ -2120,19 +2143,20 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     mpScene->bindShaderData(rootVar["gScene"]);
     auto var = rootVar["CB"]["gSelectNeighbors"];
     var["params"].setBlob(mParams);
-    var["cgnsGBuffer"]             = mpCgnsGBuffer;
-    var["neighborOffsets"]         = mpNeighborOffsets;
-    var["neighborSelections"]      = mpNeighborSelections;
-    var["gSpatialRoundId"]         = (int)iteration;
-    var["gNeighborCandidateCount"] = (int)mReSTIRParams.neighborCandidateCount;
-    var["gM"]                      = (int)mReSTIRParams.neighborCount;
-    var["gGatherRadius"]           = mReSTIRParams.spatialGatherRadius;
-    var["gScaleSolidAngle"]        = mReSTIRParams.scaleSolidAngle;
-    var["gNormalBeta"]             = mReSTIRParams.normalBeta;
-    var["gUseEarlyStopping"]       = mReSTIRParams.useEarlyStopping;
-    var["gEarlyStopCutoff"]        = mReSTIRParams.earlyStopCutoff;
-    var["gMetric"]                 = (int)mReSTIRParams.metric;
-    // TODOLC metricToTrack, selectionMethod
+    var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
+    var["cgnsIntegrandGBuffer"]      = mpCgnsIntegrandGBuffer;
+    var["neighborOffsets"]           = mpNeighborOffsets;
+    var["neighborSelections"]        = mpNeighborSelections;
+    var["gSpatialRoundId"]           = (int)iteration;
+    var["gNeighborCandidateCount"]   = (int)mReSTIRParams.neighborCandidateCount;
+    var["gM"]                        = (int)mReSTIRParams.neighborCount;
+    var["gGatherRadius"]             = mReSTIRParams.spatialGatherRadius;
+    var["gScaleSolidAngle"]          = mReSTIRParams.scaleSolidAngle;
+    var["gNormalBeta"]               = mReSTIRParams.normalBeta;
+    var["gUseEarlyStopping"]         = mReSTIRParams.useEarlyStopping;
+    var["gEarlyStopCutoff"]          = mReSTIRParams.earlyStopCutoff;
+    var["enableGeometrySelection"]   = mReSTIRParams.enableGeometrySelection;
+    var["enableLuminositySelection"] = mReSTIRParams.enableLuminositySelection;
 
     mpSelectNeighborsPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
@@ -2146,7 +2170,7 @@ void CGNS::spatialResampling(RenderContext* pRenderContext, const RenderData& re
     var["useConfidenceWeights"]      = mReSTIRParams.useConfidenceWeightsSpatially;
     var["neighborCount"]             = mReSTIRParams.neighborCount;
     var["neighborSelections"]        = mpNeighborSelections;
-    var["cgnsGBuffer"]               = mpCgnsGBuffer;
+    var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
     var["enableGeometryRejection"]   = mReSTIRParams.enableGeometryRejection;
 
     ref<Buffer>& pSwapReservoirs = mpScene->isFrozen() ? mpTempReservoirs : mpPrevReservoirs;

@@ -62,14 +62,30 @@ FALCOR_ENUM_REGISTER(MISHeuristic);
 enum class Metric : uint32_t
 {
     Geometry = 0,
-    Integrand = 1,
+    Luminosity = 1,
+    TotalWeight = 2,
+    Material = 3,
 };
 
 FALCOR_ENUM_INFO(Metric, {
     { Metric::Geometry, "Geometry" },
-    { Metric::Integrand, "Integrand" },
+    { Metric::Luminosity, "Luminosity" },
+    { Metric::TotalWeight, "TotalWeight" },
+    { Metric::Material, "Material" },
 });
 FALCOR_ENUM_REGISTER(Metric);
+
+enum class SelectionMethod : uint32_t
+{
+    WRS = 0,
+    PValue = 1,
+};
+
+FALCOR_ENUM_INFO(SelectionMethod, {
+    { SelectionMethod::WRS, "WRS" },
+    { SelectionMethod::PValue, "PValue" },
+});
+FALCOR_ENUM_REGISTER(SelectionMethod);
 
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.

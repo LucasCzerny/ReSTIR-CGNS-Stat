@@ -41,7 +41,7 @@ float computeNeighborWeightGeometry(
 
 static const float3 kLuminanceWeights = float3(0.2126f, 0.7152f, 0.0722f);
 
-float computeNeighborWeightIntegrand(
+float computeNeighborWeightLuminosity(
     bool   queryValid,
     bool   candidateValid,
     float3 queryPos,

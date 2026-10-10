@@ -184,13 +184,14 @@ private:
         bool enableGeometryRejection = true;                                    ///< Reject neighbors whose normals or depths diverge too far from the central pixel.
 
         // CGNS — spatial neighbor selection
-        uint32_t neighborCandidateCount = 32;       ///< K: number of candidates scored per pixel per iteration.
-        float    scaleSolidAngle = 0.05f;           ///< Ω (sr): solid angle of the characteristic search disk; s = sqrt(Ω/π) * queryDist.
-        float    normalBeta = 8.0f;                 ///< β: exponent on the normal compatibility term max(n·n', 0)^β.
-        bool     useEarlyStopping = true;           ///< Stop sampling early when a candidate scores ≥ earlyStopCutoff.
-        float    earlyStopCutoff = 0.5f;            ///< Score threshold for early stopping.
-        Metric   metric = Metric::Geometry;         ///< Which parameters of the reservoir should be used to measure neighbor similarity.
-        // TODOLC: selectionMethod
+        uint32_t neighborCandidateCount = 32;                         ///< K: number of candidates scored per pixel per iteration.
+        float    scaleSolidAngle = 0.05f;                             ///< Ω (sr): solid angle of the characteristic search disk; s = sqrt(Ω/π) * queryDist.
+        float    normalBeta = 8.0f;                                   ///< β: exponent on the normal compatibility term max(n·n', 0)^β.
+        bool     useEarlyStopping = true;                             ///< Stop sampling early when a candidate scores ≥ earlyStopCutoff.
+        float    earlyStopCutoff = 0.5f;                              ///< Score threshold for early stopping.
+        bool     enableGeometrySelection = true;
+        bool     enableLuminositySelection = false;
+        SelectionMethod selectionMethod = SelectionMethod::WRS;       ///< Use WRS or PValue (only works for Luminance and TODO LC)
     };
 
     // Configuration
@@ -283,9 +284,9 @@ private:
     ref<Texture>                    mpNeighborOffsets;                      ///< Quasi-random numbers to sample neighbor reservoirs.
 
     // CGNS — Neighbor G-buffer (written once per frame before the spatial iteration loop)
-    ref<Texture>                    mpCgnsGBuffer;                ///< RGBA16F: (world normal xyz, camera-to-surface distance). dist==0 → env hit.
+    ref<Texture>                    mpCgnsGeometryGBuffer;                ///< RGBA16F: (world normal xyz, camera-to-surface distance). dist==0 → env hit.
+    ref<Texture>                    mpCgnsIntegrandGBuffer;               ///< RGBA16F: (integrand rgb, TODO idk).
     ref<ComputePass>                mpGenerateCGNSGBufferPass;
-    ref<Buffer>                     mpCgnsParamsBuffer; // TODOLC description
 
     void generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& renderData);
 

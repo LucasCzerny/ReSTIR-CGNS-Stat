@@ -24,7 +24,8 @@ struct SelectNeighbors
 {
     PathTracerParams params;
 
-    Texture2D<float4>        cgnsGBuffer;           // (world normal xyz, cam-dist); dist==0 -> env hit
+    Texture2D<float4>        cgnsGeometryGBuffer;   // (world normal xyz, cam-dist); dist==0 -> env hit
+    Texture2D<float4>        cgnsIntegrandGBuffer; // (world normal xyz, cam-dist); dist==0 -> env hit
     Texture1D<float2>        neighborOffsets;       // R2 quasi-random disk offsets
     RWStructuredBuffer<int2> neighborSelections;    // Output: M selected pixels per pixel (stride = gM)
 
@@ -39,11 +40,8 @@ struct SelectNeighbors
     bool gUseEarlyStopping;     // Stop candidate sampling once M candidates with score >= gEarlyStopCutoff are found (paper §5, §7.5)
     float gEarlyStopCutoff;     // Determines threshold for early stopping
 
-    // TODOLC
-    // metricToTrack
-    // selectionMethod
-
-    int gMetric;
+    bool enableGeometrySelection;
+    bool enableLuminositySelection;
 
     float3 computeWorldPos(int2 px, float dist)
     {
@@ -54,13 +52,13 @@ struct SelectNeighbors
     float scoreCandidate(
         bool   queryValid,
         float3 queryPos,
-        float3 queryData,
+        float3 queryNormal,
+        float3 queryIntegrand,
         float  queryScale,
         int2   candidatePx,
-        int metric
     ) {
-        float4 buf = cgnsGBuffer[candidatePx];
-        float candidateDist = buf.w;
+        float4 geometry = cgnsGeometryGBuffer[candidatePx];
+        float candidateDist = geometry.w;
         bool candidateValid = candidateDist > 0.0f;
 
         float3 candidatePos = candidateValid ? computeWorldPos(candidatePx, candidateDist) : float3(0, 0, 0);
@@ -72,22 +70,24 @@ struct SelectNeighbors
         if (!queryValid || !candidateValid)
             return EPSILON; // one surface, one env map — discourage
 
-        switch (Metric(metric)) {
-        case Metric::Geometry:
-            float3 queryNormal = queryData;
-            float3 candidateNormal = buf.xyz;
+        float geometryScore = 0.0f;
+        float luminosityScore = 0.0f;
 
-            return computeNeighborWeightGeometry(
+        if (enableGeometrySelection) {
+            float3 candidateNormal = geometry.xyz;
+
+            geometryScore = computeNeighborWeightGeometry(
                 queryValid, candidateValid,
                 queryPos, queryNormal,
                 candidatePos, candidateNormal,
                 queryScale, gNormalBeta
             );
-        case Metric::Integrand:
-            float3 queryIntegrand = queryData;
-            float3 candidateIntegrand  = buf.rgb;
+        }
 
-            return computeNeighborWeightIntegrand(
+        if (enableLuminositySelection) {
+            float3 candidateIntegrand = cgnsIntegrandGBuffer[candidatePx].rgb;
+
+            luminosityScore = computeNeighborWeightLuminosity(
                 queryValid, candidateValid,
                 queryPos, queryIntegrand,
                 candidatePos, candidateIntegrand,
@@ -95,7 +95,10 @@ struct SelectNeighbors
             );
         }
 
-        return 0.0f;
+        float weight = geometryScore > 0.0f && luminosityScore > 0.0f ? 0.5f : 1.0f;
+        float score = geometryScore * weight + luminosityScore * weight;
+
+        return score;
     }
 
     void execute(uint2 pixel)
@@ -107,12 +110,14 @@ struct SelectNeighbors
         uint seed = (params.useFixedSeed > 0) ? params.fixedSeed + 4 : kNumRenderPasses * (params.frameCount + params.seed) + 1337 * uint(gSpatialRoundId) + 4;
         var sg = TinyUniformSampleGenerator(pixel, seed);
 
-        float4 qBuf         = cgnsGBuffer[pixel];
-        float3 queryData    = qBuf.xyz;
-        float  queryDist    = qBuf.w;
-        bool   queryValid   = queryDist > 0.0f;
-        float3 queryPos     = queryValid ? computeWorldPos(int2(pixel), queryDist) : float3(0, 0, 0);
-        float  queryScale   = computeNeighborScale(gScaleSolidAngle, queryDist);
+        float4 qGeometryBuf   = cgnsGeometryGBuffer[pixel];
+        float4 qIntegrandBuf  = cgnsIntegrandGBuffer[pixel];
+        float3 queryNormal    = qGeometryBuf.xyz;
+        float3 queryIntegrand = qIntegrandBuf.rgb;
+        float  queryDist      = qGeometryBuf.w;
+        bool   queryValid     = queryDist > 0.0f;
+        float3 queryPos       = queryValid ? computeWorldPos(int2(pixel), queryDist) : float3(0, 0, 0);
+        float  queryScale     = computeNeighborScale(gScaleSolidAngle, queryDist);
 
         uint startIndex = uint(sampleNext1D(sg) * kSpatialNeighborSamples);
         uint base       = centralOffset * uint(gM);
@@ -129,7 +134,7 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryData, queryScale, candidate, gMetric);
+                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryIntegrand, queryScale, candidate);
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u);
 
@@ -151,7 +156,7 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryData, queryScale, candidate, gMetric);
+                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryIntegrand, queryScale, candidate);
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u, uint(gM));
 

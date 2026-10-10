@@ -25,7 +25,7 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
- 
+
 #include "Utils/Math/MathConstants.slangh"
 #include "Scene/SceneDefines.slangh"
 #include "RaytracingCommon.slang"
@@ -51,7 +51,7 @@ struct SpatialResampling
     uint32_t neighborCount;
 
     StructuredBuffer<int2> neighborSelections;
-    Texture2D<float4>      cgnsGBuffer;         // (world normal xyz, cam-dist); dist==0 => env hit
+    Texture2D<float4>      cgnsGeometryGBuffer;         // (world normal xyz, cam-dist); dist==0 => env hit
     bool                   enableGeometryRejection;
 
     StructuredBuffer<ReconnectionData> prevReconnectionData;
@@ -107,7 +107,7 @@ struct SpatialResampling
         ReconnectionData dstReconnectionData = ReconnectionData();
 
         // Read central G-buffer once for geometry rejection checks.
-        float4 centralBuf  = cgnsGBuffer[pixel];
+        float4 centralBuf  = cgnsGeometryGBuffer[pixel];
         float3 centralNormal = centralBuf.xyz;
         float  centralDist = centralBuf.w;
 
@@ -123,7 +123,7 @@ struct SpatialResampling
             // Geometry rejection: discard neighbors with incompatible normals or depths.
             if (enableGeometryRejection)
             {
-                float4 neighborBuf   = cgnsGBuffer[neighborPixel];
+                float4 neighborBuf   = cgnsGeometryGBuffer[neighborPixel];
                 float3 neighborNormal  = neighborBuf.xyz;
                 float  neighborDist  = neighborBuf.w;
                 bool   centralSurf   = centralDist  > 0.0f;
@@ -150,9 +150,9 @@ struct SpatialResampling
                 float2 fractionalPixel = float2(neighborPixel) + centralReservoir.subPixel;
                 ShiftedPathData shiftedCentral = lensVertexCopyShift ? gatherLensVertexCopyShift(sg, centralReconnection, centralReconnection.time, fractionalPixel, centralReconnection.lensSample)
                                                                      : gatherPrimaryHitReconnectionShift( sg, centralReconnection, centralReconnection.time, fractionalPixel, centralReconnection.firstHit);
-                
+
                 // The lens vertex copy does not include the lens vertex Jacobian.
-                float shiftedJacobian = (lensVertexCopyShift ? 1.0f : (shiftedCentral.lensVertexJacobian / centralReconnection.lensVertexJacobian)) * 
+                float shiftedJacobian = (lensVertexCopyShift ? 1.0f : (shiftedCentral.lensVertexJacobian / centralReconnection.lensVertexJacobian)) *
                                                                 (shiftedCentral.secondaryPathJacobian / centralReconnection.secondaryPathJacobian);
 
                 m1 = luminance(shiftedCentral.radiance) * shiftedJacobian * (useConfidenceWeights ? neighborReservoir.confidence : 1.0f);
