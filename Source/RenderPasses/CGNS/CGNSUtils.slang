@@ -39,27 +39,86 @@ float computeNeighborWeightGeometry(
     return clamp(positionScore * pow(normalScore, normalBeta), EPSILON, 1.0f);
 }
 
-static const float3 kLuminanceWeights = float3(0.2126f, 0.7152f, 0.0722f);
-
-float computeNeighborWeightLuminosity(
+float computeNeighborWeightIntegrand(
     bool   queryValid,
     bool   candidateValid,
-    float3 queryPos,
-    float3 queryIntegrand,
-    float3 candidatePos,
-    float3 candidateIntegrand,
-    float  scale,       // s = sqrt(Ω/π) * queryDist
+    float3 queryColor,
+    float  queryLuminance,
+    float3 candidateColor,
+    float  candidateLuminance,
     float  exponent
 )
 {
-    float queryLuminance = dot(max(queryIntegrand, 0.0f), kLuminanceWeights);
-    float candidateLuminance = dot(max(candidateIntegrand, 0.0f), kLuminanceWeights);
+    // TODO: should the color comparison be changed to match the non-linear human perception more closely?
+    float colorRelativeDiff = length(queryColor - candidateColor) / (length(queryColor) + length(candidateColor) + EPSILON);
+    float colorScore = pow(1.0f - colorRelativeDiff, exponent);
 
-    float relativeDiff = abs(queryLuminance - candidateLuminance) / (queryLuminance + candidateLuminance + EPSILON);
+    float luminanceRelativeDiff = abs(queryLuminance - candidateLuminance) / (queryLuminance + candidateLuminance + EPSILON);
+    float luminanceScore = pow(1.0f - luminanceRelativeDiff, exponent);
 
-    float integrandScore = pow(1.0f - relativeDiff, exponent);
+    return clamp(colorScore * luminanceScore, EPSILON, 1.0f);
+}
 
-    float positionScore = exp(-distance(queryPos, candidatePos) / scale);
+float computeNeighborWeightMaterialCutoff(
+    uint queryMaterialID,
+    uint candidateMaterialID
+)
+{
+    return (queryMaterialID == candidateMaterialID) ? 1.0f : EPSILON;
+}
 
-    return clamp(positionScore * integrandScore, EPSILON, 1.0f);
+float computeMaterialScalarScore(
+    float queryValue,
+    float candidateValue,
+    float exponent
+)
+{
+    float relativeDiff = abs(queryValue - candidateValue) / (queryValue + candidateValue + EPSILON);
+    return clamp(pow(1.0f - relativeDiff, exponent), EPSILON, 1.0f);
+}
+
+float computeNeighborWeightRoughness(
+    float queryRoughness,
+    float candidateRoughness,
+    float exponent
+)
+{
+    return computeMaterialScalarScore(queryRoughness, candidateRoughness, exponent);
+}
+
+float computeNeighborWeightSpecular(
+    float querySpecular,
+    float candidateSpecular,
+    float exponent
+)
+{
+    return computeMaterialScalarScore(querySpecular, candidateSpecular, exponent);
+}
+
+float computeNeighborWeightEmissive(
+    float queryEmissive,
+    float candidateEmissive,
+    float exponent
+)
+{
+    return computeMaterialScalarScore(queryEmissive, candidateEmissive, exponent);
+}
+
+float computeNeighborWeightBaseColor(
+    float3 queryBaseColor,
+    float3 candidateBaseColor,
+    float exponent
+)
+{
+    float relativeDiff = length(queryBaseColor - candidateBaseColor) / (length(queryBaseColor) + length(candidateBaseColor) + EPSILON);
+    return clamp(pow(1.0f - relativeDiff, exponent), EPSILON, 1.0f);
+}
+
+// Instance cutoff: identical instance IDs score 1, different IDs are rejected (hard gate).
+float computeNeighborWeightInstance(
+    uint queryInstanceID,
+    uint candidateInstanceID
+)
+{
+    return (queryInstanceID == candidateInstanceID) ? 1.0f : EPSILON;
 }

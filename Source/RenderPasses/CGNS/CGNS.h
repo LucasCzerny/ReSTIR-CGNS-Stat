@@ -189,9 +189,15 @@ private:
         float    normalBeta = 8.0f;                                   ///< β: exponent on the normal compatibility term max(n·n', 0)^β.
         bool     useEarlyStopping = true;                             ///< Stop sampling early when a candidate scores ≥ earlyStopCutoff.
         float    earlyStopCutoff = 0.5f;                              ///< Score threshold for early stopping.
-        bool     enableGeometrySelection = true;
-        bool     enableLuminositySelection = false;
-        SelectionMethod selectionMethod = SelectionMethod::WRS;       ///< Use WRS or PValue (only works for Luminance and TODO LC)
+        bool     enableGeometrySelection = true;                      ///< Compare world position and normal.
+        bool     enableIntegrandSelection = false;                    ///< Compare reservoir integrand.
+        float    colorExponent = 8.0f;                                ///< Exponent on the color and luminance compatibility terms.
+        bool     enableMaterialCutoffSelection = false;               ///< Reject candidate neighbors whose material ID differs from the query.
+        bool     enableRoughnessSelection = false;                    ///< Compare material roughness.
+        bool     enableSpecularSelection = false;                     ///< Compare material specular.
+        bool     enableEmissiveSelection = false;                     ///< Compare material emissive.
+        bool     enableBaseColorSelection = false;                    ///< Compare material base color.
+        bool     enableInstanceSelection = false;                     ///< Reject candidate neighbors from a different geometry instance.
     };
 
     // Configuration
@@ -285,7 +291,10 @@ private:
 
     // CGNS — Neighbor G-buffer (written once per frame before the spatial iteration loop)
     ref<Texture>                    mpCgnsGeometryGBuffer;                ///< RGBA16F: (world normal xyz, camera-to-surface distance). dist==0 → env hit.
-    ref<Texture>                    mpCgnsIntegrandGBuffer;               ///< RGBA16F: (integrand rgb, TODO idk).
+    ref<Texture>                    mpCgnsIntegrandGBuffer;                   ///< RGBA16F: (integrand rgb, luminance). all-zero → env hit.
+    ref<Texture>                    mpCgnsMaterialGBuffer;                ///< RGBA32F: (materialID, roughness, specular F0 luminance, emissive luminance). all-zero → env hit.
+    ref<Texture>                    mpCgnsBaseColorGBuffer;               ///< RGBA16F: (diffuse albedo rgb, unused). all-zero → env hit.
+    ref<Texture>                    mpCgnsIdGBuffer;                      ///< RGBA32Uint: (instanceID, meshID, primitiveID, unused). all-zero → env hit.
     ref<ComputePass>                mpGenerateCGNSGBufferPass;
 
     void generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& renderData);

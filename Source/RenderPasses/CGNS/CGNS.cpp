@@ -658,8 +658,32 @@ bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
                 dirty |= cgns.checkbox("Enable Geometry Selection", mReSTIRParams.enableGeometrySelection);
                 cgns.tooltip("Use the normal and position from the gbuffer to help select neighbor reservoirs", true);
 
-                dirty |= cgns.checkbox("Enable Luminosity Selection", mReSTIRParams.enableLuminositySelection);
-                cgns.tooltip("Use the luminosity calculated from the reservoir's integrand to help select neighbor reservoirs", true);
+                dirty |= cgns.checkbox("Enable Integrand Selection", mReSTIRParams.enableIntegrandSelection);
+                cgns.tooltip("Compare the reservoir's integrand (color and luminance) to help select neighbor reservoirs", true);
+
+                if (mReSTIRParams.enableIntegrandSelection)
+                {
+                    dirty |= cgns.var("Color Exponent", mReSTIRParams.colorExponent, 0.0f, 32.0f);
+                    cgns.tooltip("Exponent applied to the color and luminance compatibility terms.", true);
+                }
+
+                dirty |= cgns.checkbox("Enable Material Cutoff Selection", mReSTIRParams.enableMaterialCutoffSelection);
+                cgns.tooltip("Reject candidate neighbors whose material ID differs from the query.", true);
+
+                dirty |= cgns.checkbox("Enable Roughness Selection", mReSTIRParams.enableRoughnessSelection);
+                cgns.tooltip("Compare material roughness when scoring neighbor reservoirs.", true);
+
+                dirty |= cgns.checkbox("Enable Specular Selection", mReSTIRParams.enableSpecularSelection);
+                cgns.tooltip("Compare specular reflectance (F0 luminance) when scoring neighbor reservoirs.", true);
+
+                dirty |= cgns.checkbox("Enable Emissive Selection", mReSTIRParams.enableEmissiveSelection);
+                cgns.tooltip("Compare emissive luminance when scoring neighbor reservoirs.", true);
+
+                dirty |= cgns.checkbox("Enable Base Color Selection", mReSTIRParams.enableBaseColorSelection);
+                cgns.tooltip("Compare diffuse base color when scoring neighbor reservoirs.", true);
+
+                dirty |= cgns.checkbox("Enable Instance Selection", mReSTIRParams.enableInstanceSelection);
+                cgns.tooltip("Reject candidate neighbors from a different geometry instance.", true);
 
                 dirty |= cgns.var("Candidate Count (K)", mReSTIRParams.neighborCandidateCount, 1u, 128u);
                 cgns.tooltip("Number of disk candidates scored per pixel per iteration.", true);
@@ -1405,7 +1429,6 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
         mpNeighborOffsets = createNeighborOffsetTexture(kSpatialNeighborSamples);
     }
 
-    // CGNS G-buffer: one RGBA16F texel per pixel, (world normal xyz, cam-dist).
     if (mReSTIRParams.enableSpatialResampling)
     {
         if (!mpCgnsGeometryGBuffer ||
@@ -1426,7 +1449,6 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
         mpCgnsGeometryGBuffer = nullptr;
     }
 
-    // CGNS G-buffer: one RGBA16F texel per pixel, (integrand rgb, cam-dist).
     if (mReSTIRParams.enableSpatialResampling)
     {
         if (!mpCgnsIntegrandGBuffer ||
@@ -1447,7 +1469,66 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
         mpCgnsIntegrandGBuffer = nullptr;
     }
 
-    // CGNS — neighbor selection buffer: M int2s per pixel (stride = neighborCount).
+    if (mReSTIRParams.enableSpatialResampling)
+    {
+        if (!mpCgnsMaterialGBuffer ||
+            mpCgnsMaterialGBuffer->getWidth()  != mParams.frameDim.x ||
+            mpCgnsMaterialGBuffer->getHeight() != mParams.frameDim.y)
+        {
+            mpCgnsMaterialGBuffer = mpDevice->createTexture2D(
+                mParams.frameDim.x,
+                mParams.frameDim.y,
+                ResourceFormat::RGBA32Float,
+                1, 1, nullptr,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+        }
+    }
+    else
+    {
+        mpCgnsMaterialGBuffer = nullptr;
+    }
+
+    if (mReSTIRParams.enableSpatialResampling)
+    {
+        if (!mpCgnsBaseColorGBuffer ||
+            mpCgnsBaseColorGBuffer->getWidth()  != mParams.frameDim.x ||
+            mpCgnsBaseColorGBuffer->getHeight() != mParams.frameDim.y)
+        {
+            mpCgnsBaseColorGBuffer = mpDevice->createTexture2D(
+                mParams.frameDim.x,
+                mParams.frameDim.y,
+                ResourceFormat::RGBA16Float,
+                1, 1, nullptr,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+        }
+    }
+    else
+    {
+        mpCgnsBaseColorGBuffer = nullptr;
+    }
+
+    if (mReSTIRParams.enableSpatialResampling)
+    {
+        if (!mpCgnsIdGBuffer ||
+            mpCgnsIdGBuffer->getWidth()  != mParams.frameDim.x ||
+            mpCgnsIdGBuffer->getHeight() != mParams.frameDim.y)
+        {
+            mpCgnsIdGBuffer = mpDevice->createTexture2D(
+                mParams.frameDim.x,
+                mParams.frameDim.y,
+                ResourceFormat::RGBA32Uint,
+                1, 1, nullptr,
+                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            );
+        }
+    }
+    else
+    {
+        mpCgnsIdGBuffer = nullptr;
+    }
+
     if (mReSTIRParams.enableSpatialResampling)
     {
         uint32_t pixelCount = mParams.frameDim.x * mParams.frameDim.y;
@@ -2130,7 +2211,10 @@ void CGNS::generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& 
     var["params"].setBlob(mParams);
     var["vbuffer"] = renderData.getTexture(kInputVBuffer);
     var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
-    var["cgnsIntegrandGBuffer"]      = mpCgnsIntegrandGBuffer;
+    var["cgnsIntegrandGBuffer"]          = mpCgnsIntegrandGBuffer;
+    var["cgnsMaterialGBuffer"]       = mpCgnsMaterialGBuffer;
+    var["cgnsBaseColorGBuffer"]      = mpCgnsBaseColorGBuffer;
+    var["cgnsIdGBuffer"]             = mpCgnsIdGBuffer;
     var["currReservoirs"]            = mpCurrReservoirs;
     mpGenerateCGNSGBufferPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
@@ -2143,20 +2227,30 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     mpScene->bindShaderData(rootVar["gScene"]);
     auto var = rootVar["CB"]["gSelectNeighbors"];
     var["params"].setBlob(mParams);
-    var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
-    var["cgnsIntegrandGBuffer"]      = mpCgnsIntegrandGBuffer;
-    var["neighborOffsets"]           = mpNeighborOffsets;
-    var["neighborSelections"]        = mpNeighborSelections;
-    var["gSpatialRoundId"]           = (int)iteration;
-    var["gNeighborCandidateCount"]   = (int)mReSTIRParams.neighborCandidateCount;
-    var["gM"]                        = (int)mReSTIRParams.neighborCount;
-    var["gGatherRadius"]             = mReSTIRParams.spatialGatherRadius;
-    var["gScaleSolidAngle"]          = mReSTIRParams.scaleSolidAngle;
-    var["gNormalBeta"]               = mReSTIRParams.normalBeta;
-    var["gUseEarlyStopping"]         = mReSTIRParams.useEarlyStopping;
-    var["gEarlyStopCutoff"]          = mReSTIRParams.earlyStopCutoff;
-    var["enableGeometrySelection"]   = mReSTIRParams.enableGeometrySelection;
-    var["enableLuminositySelection"] = mReSTIRParams.enableLuminositySelection;
+    var["cgnsGeometryGBuffer"]           = mpCgnsGeometryGBuffer;
+    var["cgnsIntegrandGBuffer"]              = mpCgnsIntegrandGBuffer;
+    var["cgnsMaterialGBuffer"]           = mpCgnsMaterialGBuffer;
+    var["cgnsBaseColorGBuffer"]          = mpCgnsBaseColorGBuffer;
+    var["cgnsIdGBuffer"]                 = mpCgnsIdGBuffer;
+    var["neighborOffsets"]               = mpNeighborOffsets;
+    var["neighborSelections"]            = mpNeighborSelections;
+    var["gSpatialRoundId"]               = (int)iteration;
+    var["gNeighborCandidateCount"]       = (int)mReSTIRParams.neighborCandidateCount;
+    var["gM"]                            = (int)mReSTIRParams.neighborCount;
+    var["gGatherRadius"]                 = mReSTIRParams.spatialGatherRadius;
+    var["gScaleSolidAngle"]              = mReSTIRParams.scaleSolidAngle;
+    var["gNormalBeta"]                   = mReSTIRParams.normalBeta;
+    var["gUseEarlyStopping"]             = mReSTIRParams.useEarlyStopping;
+    var["gEarlyStopCutoff"]              = mReSTIRParams.earlyStopCutoff;
+    var["enableGeometrySelection"]       = mReSTIRParams.enableGeometrySelection;
+    var["enableIntegrandSelection"]          = mReSTIRParams.enableIntegrandSelection;
+    var["enableMaterialCutoffSelection"] = mReSTIRParams.enableMaterialCutoffSelection;
+    var["enableRoughnessSelection"]      = mReSTIRParams.enableRoughnessSelection;
+    var["enableSpecularSelection"]       = mReSTIRParams.enableSpecularSelection;
+    var["enableEmissiveSelection"]       = mReSTIRParams.enableEmissiveSelection;
+    var["enableBaseColorSelection"]      = mReSTIRParams.enableBaseColorSelection;
+    var["enableInstanceSelection"]       = mReSTIRParams.enableInstanceSelection;
+    var["gColorExponent"]                = mReSTIRParams.colorExponent;
 
     mpSelectNeighborsPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }

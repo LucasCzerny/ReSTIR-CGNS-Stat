@@ -75,18 +75,6 @@ FALCOR_ENUM_INFO(Metric, {
 });
 FALCOR_ENUM_REGISTER(Metric);
 
-enum class SelectionMethod : uint32_t
-{
-    WRS = 0,
-    PValue = 1,
-};
-
-FALCOR_ENUM_INFO(SelectionMethod, {
-    { SelectionMethod::WRS, "WRS" },
-    { SelectionMethod::PValue, "PValue" },
-});
-FALCOR_ENUM_REGISTER(SelectionMethod);
-
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.
 static const uint2 kScreenTileDim = { 16, 16 };     ///< Screen-tile dimension in pixels.
