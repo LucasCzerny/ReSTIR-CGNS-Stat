@@ -32,6 +32,8 @@ import Utils.Sampling.SampleGenerator;
 
 import ReconnectionData;
 
+import Params;
+
 struct CandidateReservoir
 {
     float totalWeight;  // Total weight of the samples in the reservoir.

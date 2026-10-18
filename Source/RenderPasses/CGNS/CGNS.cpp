@@ -276,7 +276,7 @@ void CGNS::parseProperties(const Properties& props)
     }
 }
 
-CGNS::NeighborSelection CGNS::getNeighborSelection() const
+NeighborSelection CGNS::getNeighborSelection() const
 {
     if (mReSTIRParams.enableIntegrandPValueSelection) return NeighborSelection::IntegrandPValue;
     if (mReSTIRParams.enableIntegrandSelection) return NeighborSelection::Integrand;
@@ -1498,66 +1498,6 @@ void CGNS::prepareResources(RenderContext* pRenderContext, const RenderData& ren
 
     if (mReSTIRParams.enableSpatialResampling)
     {
-        if (!mpCgnsMaterialGBuffer ||
-            mpCgnsMaterialGBuffer->getWidth()  != mParams.frameDim.x ||
-            mpCgnsMaterialGBuffer->getHeight() != mParams.frameDim.y)
-        {
-            mpCgnsMaterialGBuffer = mpDevice->createTexture2D(
-                mParams.frameDim.x,
-                mParams.frameDim.y,
-                ResourceFormat::RGBA32Float,
-                1, 1, nullptr,
-                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
-            );
-        }
-    }
-    else
-    {
-        mpCgnsMaterialGBuffer = nullptr;
-    }
-
-    if (mReSTIRParams.enableSpatialResampling)
-    {
-        if (!mpCgnsBaseColorGBuffer ||
-            mpCgnsBaseColorGBuffer->getWidth()  != mParams.frameDim.x ||
-            mpCgnsBaseColorGBuffer->getHeight() != mParams.frameDim.y)
-        {
-            mpCgnsBaseColorGBuffer = mpDevice->createTexture2D(
-                mParams.frameDim.x,
-                mParams.frameDim.y,
-                ResourceFormat::RGBA16Float,
-                1, 1, nullptr,
-                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
-            );
-        }
-    }
-    else
-    {
-        mpCgnsBaseColorGBuffer = nullptr;
-    }
-
-    if (mReSTIRParams.enableSpatialResampling)
-    {
-        if (!mpCgnsIdGBuffer ||
-            mpCgnsIdGBuffer->getWidth()  != mParams.frameDim.x ||
-            mpCgnsIdGBuffer->getHeight() != mParams.frameDim.y)
-        {
-            mpCgnsIdGBuffer = mpDevice->createTexture2D(
-                mParams.frameDim.x,
-                mParams.frameDim.y,
-                ResourceFormat::RGBA32Uint,
-                1, 1, nullptr,
-                ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
-            );
-        }
-    }
-    else
-    {
-        mpCgnsIdGBuffer = nullptr;
-    }
-
-    if (mReSTIRParams.enableSpatialResampling)
-    {
         uint32_t pixelCount = mParams.frameDim.x * mParams.frameDim.y;
         uint32_t selectionCount = pixelCount * mReSTIRParams.neighborCount;
         if (!mpNeighborSelections || mpNeighborSelections->getElementCount() != selectionCount)
@@ -2238,10 +2178,7 @@ void CGNS::generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& 
     var["params"].setBlob(mParams);
     var["vbuffer"] = renderData.getTexture(kInputVBuffer);
     var["cgnsGeometryGBuffer"]       = mpCgnsGeometryGBuffer;
-    var["cgnsIntegrandGBuffer"]          = mpCgnsIntegrandGBuffer;
-    var["cgnsMaterialGBuffer"]       = mpCgnsMaterialGBuffer;
-    var["cgnsBaseColorGBuffer"]      = mpCgnsBaseColorGBuffer;
-    var["cgnsIdGBuffer"]             = mpCgnsIdGBuffer;
+    var["cgnsIntegrandGBuffer"]      = mpCgnsIntegrandGBuffer;
     var["currReservoirs"]            = mpCurrReservoirs;
     mpGenerateCGNSGBufferPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
 }
@@ -2255,10 +2192,7 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     auto var = rootVar["CB"]["gSelectNeighbors"];
     var["params"].setBlob(mParams);
     var["cgnsGeometryGBuffer"]           = mpCgnsGeometryGBuffer;
-    var["cgnsIntegrandGBuffer"]              = mpCgnsIntegrandGBuffer;
-    var["cgnsMaterialGBuffer"]           = mpCgnsMaterialGBuffer;
-    var["cgnsBaseColorGBuffer"]          = mpCgnsBaseColorGBuffer;
-    var["cgnsIdGBuffer"]                 = mpCgnsIdGBuffer;
+    var["cgnsIntegrandGBuffer"]          = mpCgnsIntegrandGBuffer;
     var["neighborOffsets"]               = mpNeighborOffsets;
     var["neighborSelections"]            = mpNeighborSelections;
     var["currReservoirs"]                = mpCurrReservoirs; // Used for p-value selection; already swapped to this iteration's reservoirs.
@@ -2270,9 +2204,6 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     var["gNormalBeta"]                   = mReSTIRParams.normalBeta;
     var["gUseEarlyStopping"]             = mReSTIRParams.useEarlyStopping;
     var["gEarlyStopCutoff"]              = mReSTIRParams.earlyStopCutoff;
-    var["enableGeometrySelection"]       = mReSTIRParams.enableGeometrySelection;
-    var["enableIntegrandSelection"]          = mReSTIRParams.enableIntegrandSelection;
-    var["enableIntegrandPValueSelection"]    = mReSTIRParams.enableIntegrandPValueSelection;
 
     var["gColorExponent"]                = mReSTIRParams.colorExponent;
 

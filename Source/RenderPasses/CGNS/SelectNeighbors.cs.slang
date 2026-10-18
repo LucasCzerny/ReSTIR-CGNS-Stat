@@ -7,6 +7,10 @@
  * Scores each using the CGNS compatibility heuristic (CGNSUtils.slang).
  * Selects M via weighted reservoir sampling (WRSReservoir.slang).
  *
+ * Exactly one selection method is active at a time (enforced by the pass UI/properties).
+ * The choice is passed as a compile-time define (StaticParams.slang -> kEnable*), so the
+ * score dispatch below folds down to the single active scorer at compile time.
+ *
  * Output: neighborSelections[linearizePixel(px) * M + i] = selected int2 neighbors for pixel i.
  */
 
@@ -26,10 +30,7 @@ struct SelectNeighbors
     PathTracerParams params;
 
     Texture2D<float4>        cgnsGeometryGBuffer;   // (world normal xyz, cam-dist); dist==0 -> env hit
-    Texture2D<float4>        cgnsIntegrandGBuffer;      // (integrand rgb, luminance); all zero -> env hit
-    Texture2D<float4>        cgnsMaterialGBuffer;   // (materialID, roughness, specular, emissive); all zero -> env hit
-    Texture2D<float4>        cgnsBaseColorGBuffer;  // (diffuse albedo rgb, unused); all zero -> env hit
-    Texture2D<uint4>         cgnsIdGBuffer;         // (instanceID, meshID, primitiveID, unused); all zero -> env hit
+    Texture2D<float4>        cgnsIntegrandGBuffer;  // (integrand rgb, luminance); all zero -> env hit
     Texture1D<float2>        neighborOffsets;       // R2 quasi-random disk offsets
     RWStructuredBuffer<int2> neighborSelections;    // Output: M selected pixels per pixel (stride = gM)
     StructuredBuffer<PathReservoir> currReservoirs; // Used for p-value selection (running mean/variance/M of integrand luminance)
@@ -45,10 +46,6 @@ struct SelectNeighbors
     bool gUseEarlyStopping;     // Stop candidate sampling once M candidates with score >= gEarlyStopCutoff are found (paper §5, §7.5)
     float gEarlyStopCutoff;     // Determines threshold for early stopping
 
-    bool enableGeometrySelection;
-    bool enableIntegrandSelection;
-    bool enableIntegrandPValueSelection;
-
     float gColorExponent;      // exponent applied to the color and luminance compatibility terms
 
     float3 computeWorldPos(int2 px, float dist)
@@ -57,73 +54,81 @@ struct SelectNeighbors
         return gScene.camera.getPosition() + dir * dist;
     }
 
-    float scoreCandidate(
+    /// Shared environment-hit handling: both invalid -> encourage reuse, mixed -> discourage.
+    /// Returns true if the caller may proceed with the actual compatibility test.
+    bool classifyHit(bool queryValid, bool candidateValid, out float score)
+    {
+        if (!queryValid && !candidateValid)
+        {
+            score = 1.0f; // both env map hits — encourage reuse
+            return false;
+        }
+        if (!queryValid || !candidateValid)
+        {
+            score = EPSILON; // one surface, one env map — discourage
+            return false;
+        }
+        score = 1.0f;
+        return true;
+    }
+
+    float scoreCandidateGeometry(
         bool   queryValid,
         float3 queryPos,
         float3 queryNormal,
+        float  queryScale,
+        int2   candidatePx
+    ) {
+        float4 geometry       = cgnsGeometryGBuffer[candidatePx];
+        float  candidateDist  = geometry.w;
+        bool   candidateValid = candidateDist > 0.0f;
+        float3 candidatePos   = candidateValid ? computeWorldPos(candidatePx, candidateDist) : float3(0, 0, 0);
+
+        float score;
+        if (!classifyHit(queryValid, candidateValid, score)) return score;
+
+        return computeNeighborWeightGeometry(
+            queryValid, candidateValid,
+            queryPos, queryNormal,
+            candidatePos, geometry.xyz,
+            queryScale, gNormalBeta
+        );
+    }
+
+    float scoreCandidateIntegrand(
+        bool   queryValid,
         float3 queryColor,
         float  queryLuminance,
-        float4 queryMaterial,
-        float3 queryBaseColor,
-        uint   queryInstanceID,
-        float  queryScale,
-        const PathReservoir queryReservoir,
-        int2   candidatePx,
+        int2   candidatePx
     ) {
-        float4 geometry = cgnsGeometryGBuffer[candidatePx];
-        float candidateDist = geometry.w;
-        bool candidateValid = candidateDist > 0.0f;
+        bool candidateValid = cgnsGeometryGBuffer[candidatePx].w > 0.0f;
 
-        float3 candidatePos = candidateValid ? computeWorldPos(candidatePx, candidateDist) : float3(0, 0, 0);
+        float score;
+        if (!classifyHit(queryValid, candidateValid, score)) return score;
 
-        // Special handling for invalid hits (e.g. environment maps)
-        if (!queryValid && !candidateValid)
-            return 1.0f; // both env map hits — encourage reuse
+        float4 candidateIntegrand = cgnsIntegrandGBuffer[candidatePx];
 
-        if (!queryValid || !candidateValid)
-            return EPSILON; // one surface, one env map — discourage
+        return computeNeighborWeightIntegrand(
+            queryValid, candidateValid,
+            queryColor, queryLuminance,
+            candidateIntegrand.rgb, candidateIntegrand.a,
+            gColorExponent
+        );
+    }
 
-        float scoreSum = 0.0f;
-        int activeCount = 0;
+    float scoreCandidateIntegrandPValue(
+        bool                 queryValid,
+        const PathReservoir  queryReservoir,
+        int2                 candidatePx
+    ) {
+        bool candidateValid = cgnsGeometryGBuffer[candidatePx].w > 0.0f;
 
-        if (enableGeometrySelection) {
-            float3 candidateNormal = geometry.xyz;
+        float score;
+        if (!classifyHit(queryValid, candidateValid, score)) return score;
 
-            scoreSum += computeNeighborWeightGeometry(
-                queryValid, candidateValid,
-                queryPos, queryNormal,
-                candidatePos, candidateNormal,
-                queryScale, gNormalBeta
-            );
-            activeCount++;
-        }
+        PathReservoir candidateReservoir = currReservoirs[params.linearizePixel(candidatePx)];
 
-        if (enableIntegrandSelection) {
-            float4 candidateColorBuf = cgnsIntegrandGBuffer[candidatePx];
-
-            scoreSum += computeNeighborWeightIntegrand(
-                queryValid, candidateValid,
-                queryColor, queryLuminance,
-                candidateColorBuf.rgb, candidateColorBuf.a,
-                gColorExponent
-            );
-            activeCount++;
-        }
-
-        if (enableIntegrandPValueSelection) {
-            PathReservoir candidateReservoir = currReservoirs[params.linearizePixel(candidatePx)];
-
-            scoreSum += computeIntegrandPValueScore(queryReservoir, candidateReservoir);
-            activeCount++;
-        }
-
-
-
-        if (activeCount == 0) {
-            return 1.0f;
-        }
-
-        return scoreSum / float(activeCount);
+        return computeIntegrandPValueScore(queryReservoir, candidateReservoir);
     }
 
     void execute(uint2 pixel)
@@ -136,19 +141,15 @@ struct SelectNeighbors
         uint seed = (params.useFixedSeed > 0) ? params.fixedSeed + 4 : kNumRenderPasses * (params.frameCount + params.seed) + 1337 * uint(gSpatialRoundId) + 4;
         var sg = TinyUniformSampleGenerator(pixel, seed);
 
-        float4 qGeometryBuf   = cgnsGeometryGBuffer[pixel];
-        float4 qColorBuf      = cgnsIntegrandGBuffer[pixel];
+        float4 qGeometryBuf = cgnsGeometryGBuffer[pixel];
+        float4 qIntegrandBuf = cgnsIntegrandGBuffer[pixel];
         float3 queryNormal    = qGeometryBuf.xyz;
-        float3 queryColor     = qColorBuf.rgb;
-        float  queryLuminance = qColorBuf.a;
         float  queryDist      = qGeometryBuf.w;
         bool   queryValid     = queryDist > 0.0f;
         float3 queryPos       = queryValid ? computeWorldPos(int2(pixel), queryDist) : float3(0, 0, 0);
         float  queryScale     = computeNeighborScale(gScaleSolidAngle, queryDist);
-
-        float4 queryMaterial  = cgnsMaterialGBuffer[pixel];
-        float3 queryBaseColor = cgnsBaseColorGBuffer[pixel].rgb;
-        uint   queryInstanceID = cgnsIdGBuffer[pixel].x;
+        float3 queryColor     = qIntegrandBuf.rgb;
+        float  queryLuminance = qIntegrandBuf.a;
 
         uint startIndex = uint(sampleNext1D(sg) * kSpatialNeighborSamples);
         uint base       = centralOffset * uint(gM);
@@ -165,7 +166,15 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, queryReservoir, candidate);
+                float score = 1.0f;
+                if (kEnableGeometrySelection) {
+                    score = scoreCandidateGeometry(queryValid, queryPos, queryNormal, queryScale, candidate);
+                } else if (kEnableIntegrandSelection) {
+                    score = scoreCandidateIntegrand(queryValid, queryColor, queryLuminance, candidate);
+                } else if (kEnableIntegrandPValueSelection) {
+                    score = scoreCandidateIntegrandPValue(queryValid, queryReservoir, candidate);
+                }
+
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u);
 
@@ -187,7 +196,15 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, queryReservoir, candidate);
+                float score = 1.0f;
+                if (kEnableGeometrySelection) {
+                    score = scoreCandidateGeometry(queryValid, queryPos, queryNormal, queryScale, candidate);
+                } else if (kEnableIntegrandSelection) {
+                    score = scoreCandidateIntegrand(queryValid, queryColor, queryLuminance, candidate);
+                } else if (kEnableIntegrandPValueSelection) {
+                    score = scoreCandidateIntegrandPValue(queryValid, queryReservoir, candidate);
+                }
+
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u, uint(gM));
 

@@ -291,10 +291,7 @@ private:
 
     // CGNS — Neighbor G-buffer (written once per frame before the spatial iteration loop)
     ref<Texture>                    mpCgnsGeometryGBuffer;                ///< RGBA16F: (world normal xyz, camera-to-surface distance). dist==0 → env hit.
-    ref<Texture>                    mpCgnsIntegrandGBuffer;                   ///< RGBA16F: (integrand rgb, luminance). all-zero → env hit.
-    ref<Texture>                    mpCgnsMaterialGBuffer;                ///< RGBA32F: (materialID, roughness, specular F0 luminance, emissive luminance). all-zero → env hit.
-    ref<Texture>                    mpCgnsBaseColorGBuffer;               ///< RGBA16F: (diffuse albedo rgb, unused). all-zero → env hit.
-    ref<Texture>                    mpCgnsIdGBuffer;                      ///< RGBA32Uint: (instanceID, meshID, primitiveID, unused). all-zero → env hit.
+    ref<Texture>                    mpCgnsIntegrandGBuffer;               ///< RGBA16F: (integrand rgb, luminance). all-zero → env hit.
     ref<ComputePass>                mpGenerateCGNSGBufferPass;
 
     void generateCGNSGBuffer(RenderContext* pRenderContext, const RenderData& renderData);
