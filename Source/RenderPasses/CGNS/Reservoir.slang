@@ -37,6 +37,11 @@ struct CandidateReservoir
     float totalWeight;  // Total weight of the samples in the reservoir.
     float3 integrand;   // The selected integrand.
 
+    // Running mean and variance over the integrands of the input samples
+    float mean;
+    float variance;
+    float M;
+
     ReconnectionData selectedReconnection; // This must be managed manually for now.
 
     // Referenced from PathReservoir::addNEEPath()
@@ -54,6 +59,20 @@ struct CandidateReservoir
         bool selected = (rng * this.totalWeight < sampleWeight);
         this.integrand = selected ? sampleIntegrand : this.integrand;
 
+        // Update statistics
+
+        float invM = 1.0 / M;
+
+        float prevMean = mean;
+        mean = prevMean + (samplePHat - prevMean) * invM;
+
+        float prevVariance = variance;
+        variance = (
+            prevVariance
+            + ((samplePHat - prevMean) * (samplePHat - mean) - prevVariance)
+            * invM
+        );
+
         return selected;
     }
 
@@ -66,7 +85,11 @@ struct CandidateReservoir
     __init()
     {
         this.totalWeight = 0.0f;
-        this.integrand = float3(0.0f, 0.0f, 0.0f);
+        this.integrand = float3(0.0f);
+        this.mean = 0.0f;
+        this.variance = 0.0f;
+        this.M = 0.0f;
+        this.selectedReconnection = ReconnectionData();
     }
 }
 
@@ -74,10 +97,15 @@ struct PathReservoir
 {
     static const float confidenceCap = 20;
 
-    float confidence;         // Sample history in the reservoir.
+    float confidence;         // Sample history in the reservoir
     float totalWeight;        // Total weight
     float3 integrand;         // Radiance of selected sample (f / p in PSS).
     float2 subPixel;          // Associated subpixel in the pixel.
+
+    // Running mean and variance over the integrands of the input samples
+    float mean;
+    float variance;
+    float M;
 
     [mutating]
     bool addSampleFromReservoir(inout SampleGenerator sg, float mis, float3 integrand, float jacobian, const PathReservoir other)
@@ -92,6 +120,20 @@ struct PathReservoir
         this.integrand = selected ? integrand : this.integrand;
         this.subPixel = selected ? other.subPixel : this.subPixel;
 
+        // Update statistics
+
+        float invM = 1.0 / M;
+
+        float prevMean = mean;
+        mean = prevMean + (pHat - prevMean) * invM;
+
+        float prevVariance = variance;
+        variance = (
+            prevVariance
+            + ((pHat - prevMean) * (pHat - mean) - prevVariance)
+            * invM
+        );
+
         return selected;
     }
 
@@ -105,6 +147,25 @@ struct PathReservoir
         float rng = sampleNext1D(sg);
         bool selected = (rng * this.totalWeight < weight);
         this.integrand = selected ? candidateReservoir.integrand : this.integrand;
+
+        // Update statistics
+
+        float totalM = max(M + candidateReservoir.M, 1e-5);
+        float invTotalM = 1.0 / totalM;
+
+        float candidateReservoirRatio = candidateReservoir.M * invTotalM;
+        float totalMean = mean + (candidateReservoir.mean - mean) * candidateReservoirRatio;
+
+        float meanDiff = mean - totalMean;
+        float candidateMeanDiff = candidateReservoir.mean - totalMean;
+
+        float SSE = M * variance + candidateReservoir.M * candidateReservoir.variance;
+        float SSG = M * meanDiff * meanDiff + candidateReservoir.M * candidateMeanDiff * candidateMeanDiff;
+        float SST = SSE + SSG;
+        variance = SST * invTotalM;
+
+        mean = totalMean;
+        M = totalM;
 
         return selected;
     }
@@ -121,12 +182,33 @@ struct PathReservoir
         this.subPixel = subPixel;
     }
 
+    // what did abramowitz and stegun smoke to find this formula
+    float erf(float x)
+    {
+        float t = 1.0 / (1.0 + 0.3275911 * abs(x));
+        float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+        return sign(x) * y;
+    }
+
+    float computePValue(PathReservoir other)
+    {
+        float se = sqrt(variance / M + other.variance / other.M);
+        if (se <= 0.0)
+            return (mean == other.mean) ? 1.0 : 0.0;
+
+        // z score
+        float z = (mean - other.mean) / se;
+        return 1.0 - erf(abs(z) / sqrt(2.0));
+    }
+
     __init()
     {
         this.confidence = 0;
         this.totalWeight = 0.0f;
-
-        this.integrand = float3(0.0f, 0.0f, 0.0f);
+        this.integrand = float3(0.0f);
         this.subPixel = float2(0.5f, 0.5f);
+        this.mean = 0.0f;
+        this.variance = 0.0f;
+        this.M = 0.0f;
     }
 };

@@ -191,6 +191,7 @@ private:
         float    earlyStopCutoff = 0.5f;                              ///< Score threshold for early stopping.
         bool     enableGeometrySelection = true;                      ///< Compare world position and normal.
         bool     enableIntegrandSelection = false;                    ///< Compare reservoir integrand.
+        bool     enableIntegrandPValueSelection = false;              ///< Compare reservoir integrand via p-value (Welch's t-test on running mean/variance; reads reservoirs directly, no extra G-buffer).
         float    colorExponent = 8.0f;                                ///< Exponent on the color and luminance compatibility terms.
         bool     enableMaterialCutoffSelection = false;               ///< Reject candidate neighbors whose material ID differs from the query.
         bool     enableRoughnessSelection = false;                    ///< Compare material roughness.

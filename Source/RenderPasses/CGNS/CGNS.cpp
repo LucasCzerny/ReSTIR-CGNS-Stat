@@ -667,6 +667,9 @@ bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
                     cgns.tooltip("Exponent applied to the color and luminance compatibility terms.", true);
                 }
 
+                dirty |= cgns.checkbox("Enable Integrand P-Value Selection", mReSTIRParams.enableIntegrandPValueSelection);
+                cgns.tooltip("Compare the reservoirs' integrand distributions with a p-value (Welch's t-test on the running mean/variance) to help select neighbor reservoirs.", true);
+
                 dirty |= cgns.checkbox("Enable Material Cutoff Selection", mReSTIRParams.enableMaterialCutoffSelection);
                 cgns.tooltip("Reject candidate neighbors whose material ID differs from the query.", true);
 
@@ -2234,6 +2237,7 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     var["cgnsIdGBuffer"]                 = mpCgnsIdGBuffer;
     var["neighborOffsets"]               = mpNeighborOffsets;
     var["neighborSelections"]            = mpNeighborSelections;
+    var["currReservoirs"]                = mpCurrReservoirs; // Used for p-value selection; already swapped to this iteration's reservoirs.
     var["gSpatialRoundId"]               = (int)iteration;
     var["gNeighborCandidateCount"]       = (int)mReSTIRParams.neighborCandidateCount;
     var["gM"]                            = (int)mReSTIRParams.neighborCount;
@@ -2244,6 +2248,7 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     var["gEarlyStopCutoff"]              = mReSTIRParams.earlyStopCutoff;
     var["enableGeometrySelection"]       = mReSTIRParams.enableGeometrySelection;
     var["enableIntegrandSelection"]          = mReSTIRParams.enableIntegrandSelection;
+    var["enableIntegrandPValueSelection"]    = mReSTIRParams.enableIntegrandPValueSelection;
     var["enableMaterialCutoffSelection"] = mReSTIRParams.enableMaterialCutoffSelection;
     var["enableRoughnessSelection"]      = mReSTIRParams.enableRoughnessSelection;
     var["enableSpecularSelection"]       = mReSTIRParams.enableSpecularSelection;

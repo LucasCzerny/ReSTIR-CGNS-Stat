@@ -9,6 +9,8 @@
  * Paper defaults: Ω = 0.05 sr, β = 8.
  */
 
+ import Reservoir;
+
 #ifndef EPSILON
 #define EPSILON 1e-8f
 #endif
@@ -57,6 +59,14 @@ float computeNeighborWeightIntegrand(
     float luminanceScore = pow(1.0f - luminanceRelativeDiff, exponent);
 
     return clamp(colorScore * luminanceScore, EPSILON, 1.0f);
+}
+
+float computeIntegrandPValueScore(const PathReservoir queryReservoir, const PathReservoir candidateReservoir)
+{
+    if (queryReservoir.M < 1.0f || candidateReservoir.M < 1.0f)
+        return EPSILON;
+
+    return clamp(queryReservoir.computePValue(candidateReservoir), EPSILON, 1.0f);
 }
 
 float computeNeighborWeightMaterialCutoff(

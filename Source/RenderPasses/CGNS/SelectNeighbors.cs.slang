@@ -14,6 +14,7 @@ import Scene.Scene;
 import Utils.Sampling.TinyUniformSampleGenerator;
 import CGNSUtils;
 import WRSReservoir;
+import Reservoir;
 import Params;
 
 #ifndef EPSILON
@@ -31,6 +32,7 @@ struct SelectNeighbors
     Texture2D<uint4>         cgnsIdGBuffer;         // (instanceID, meshID, primitiveID, unused); all zero -> env hit
     Texture1D<float2>        neighborOffsets;       // R2 quasi-random disk offsets
     RWStructuredBuffer<int2> neighborSelections;    // Output: M selected pixels per pixel (stride = gM)
+    StructuredBuffer<PathReservoir> currReservoirs; // Used for p-value selection (running mean/variance/M of integrand luminance)
 
     float gGatherRadius;             // Radius for sampling neighbors
     int   gM;                        // M - selections to return (1 -> A-Chao, >1 -> A-ES)
@@ -45,6 +47,7 @@ struct SelectNeighbors
 
     bool enableGeometrySelection;
     bool enableIntegrandSelection;
+    bool enableIntegrandPValueSelection;
     bool enableMaterialCutoffSelection;
     bool enableRoughnessSelection;
     bool enableSpecularSelection;
@@ -70,6 +73,7 @@ struct SelectNeighbors
         float3 queryBaseColor,
         uint   queryInstanceID,
         float  queryScale,
+        const PathReservoir queryReservoir,
         int2   candidatePx,
     ) {
         float4 geometry = cgnsGeometryGBuffer[candidatePx];
@@ -109,6 +113,13 @@ struct SelectNeighbors
                 candidateColorBuf.rgb, candidateColorBuf.a,
                 gColorExponent
             );
+            activeCount++;
+        }
+
+        if (enableIntegrandPValueSelection) {
+            PathReservoir candidateReservoir = currReservoirs[params.linearizePixel(candidatePx)];
+
+            scoreSum += computeIntegrandPValueScore(queryReservoir, candidateReservoir);
             activeCount++;
         }
 
@@ -162,6 +173,7 @@ struct SelectNeighbors
     {
         if (any(pixel >= params.frameDim)) return;
         uint centralOffset = params.linearizePixel(pixel);
+        PathReservoir queryReservoir = currReservoirs[centralOffset];
 
         // Basic random seed, unique from other passes
         uint seed = (params.useFixedSeed > 0) ? params.fixedSeed + 4 : kNumRenderPasses * (params.frameCount + params.seed) + 1337 * uint(gSpatialRoundId) + 4;
@@ -196,7 +208,7 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, candidate);
+                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, queryReservoir, candidate);
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u);
 
@@ -218,7 +230,7 @@ struct SelectNeighbors
                     + gGatherRadius * neighborOffsets[(startIndex + uint(k)) % kSpatialNeighborSamples]));
                 if (!params.validateIntegerPixelBounds(candidate)) continue;
 
-                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, candidate);
+                float score = scoreCandidate(queryValid, queryPos, queryNormal, queryColor, queryLuminance, queryMaterial, queryBaseColor, queryInstanceID, queryScale, queryReservoir, candidate);
                 float u     = sampleNext1D(sg);
                 res.tryUpdate(candidate, score, u, uint(gM));
 
