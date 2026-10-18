@@ -189,17 +189,16 @@ private:
         float    normalBeta = 8.0f;                                   ///< β: exponent on the normal compatibility term max(n·n', 0)^β.
         bool     useEarlyStopping = true;                             ///< Stop sampling early when a candidate scores ≥ earlyStopCutoff.
         float    earlyStopCutoff = 0.5f;                              ///< Score threshold for early stopping.
-        bool     enableGeometrySelection = true;                      ///< Compare world position and normal.
-        bool     enableIntegrandSelection = false;                    ///< Compare reservoir integrand.
-        bool     enableIntegrandPValueSelection = false;              ///< Compare reservoir integrand via p-value (Welch's t-test on running mean/variance; reads reservoirs directly, no extra G-buffer).
+        bool     enableGeometrySelection = true;                      ///< Compare world position and normal. Mutually exclusive with the other selection methods.
+        bool     enableIntegrandSelection = false;                    ///< Compare reservoir integrand. Mutually exclusive with the other selection methods.
+        bool     enableIntegrandPValueSelection = false;              ///< Compare reservoir integrand via p-value (Welch's t-test on running mean/variance; reads reservoirs directly, no extra G-buffer). Mutually exclusive with the other selection methods.
         float    colorExponent = 8.0f;                                ///< Exponent on the color and luminance compatibility terms.
-        bool     enableMaterialCutoffSelection = false;               ///< Reject candidate neighbors whose material ID differs from the query.
-        bool     enableRoughnessSelection = false;                    ///< Compare material roughness.
-        bool     enableSpecularSelection = false;                     ///< Compare material specular.
-        bool     enableEmissiveSelection = false;                     ///< Compare material emissive.
-        bool     enableBaseColorSelection = false;                    ///< Compare material base color.
-        bool     enableInstanceSelection = false;                     ///< Reject candidate neighbors from a different geometry instance.
     };
+
+    // Switch between Geometry WRS, Integrand WRS, Integrand P-Value
+    NeighborSelection getNeighborSelection() const;
+    void setNeighborSelection(NeighborSelection selection);
+    void neighborSelectionGeometryFailsafe();
 
     // Configuration
     PathTracerParams                    mParams;                            ///< Runtime path tracer parameters.

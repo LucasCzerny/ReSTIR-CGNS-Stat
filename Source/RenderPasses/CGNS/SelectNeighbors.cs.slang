@@ -48,12 +48,6 @@ struct SelectNeighbors
     bool enableGeometrySelection;
     bool enableIntegrandSelection;
     bool enableIntegrandPValueSelection;
-    bool enableMaterialCutoffSelection;
-    bool enableRoughnessSelection;
-    bool enableSpecularSelection;
-    bool enableEmissiveSelection;
-    bool enableBaseColorSelection;
-    bool enableInstanceSelection;
 
     float gColorExponent;      // exponent applied to the color and luminance compatibility terms
 
@@ -123,44 +117,7 @@ struct SelectNeighbors
             activeCount++;
         }
 
-        if (enableMaterialCutoffSelection || enableRoughnessSelection || enableSpecularSelection || enableEmissiveSelection)
-        {
-            float4 candidateMaterial = cgnsMaterialGBuffer[candidatePx];
 
-            if (enableMaterialCutoffSelection) {
-                scoreSum += computeNeighborWeightMaterialCutoff(uint(queryMaterial.x), uint(candidateMaterial.x));
-                activeCount++;
-            }
-
-            if (enableRoughnessSelection) {
-                scoreSum += computeNeighborWeightRoughness(queryMaterial.y, candidateMaterial.y, gColorExponent);
-                activeCount++;
-            }
-
-            if (enableSpecularSelection) {
-                scoreSum += computeNeighborWeightSpecular(queryMaterial.z, candidateMaterial.z, gColorExponent);
-                activeCount++;
-            }
-
-            if (enableEmissiveSelection) {
-                scoreSum += computeNeighborWeightEmissive(queryMaterial.w, candidateMaterial.w, gColorExponent);
-                activeCount++;
-            }
-        }
-
-        if (enableBaseColorSelection) {
-            float3 candidateBaseColor = cgnsBaseColorGBuffer[candidatePx].rgb;
-
-            scoreSum += computeNeighborWeightBaseColor(queryBaseColor, candidateBaseColor, gColorExponent);
-            activeCount++;
-        }
-
-        if (enableInstanceSelection) {
-            uint candidateInstanceID = cgnsIdGBuffer[candidatePx].x;
-
-            scoreSum += computeNeighborWeightInstance(queryInstanceID, candidateInstanceID);
-            activeCount++;
-        }
 
         if (activeCount == 0) {
             return 1.0f;

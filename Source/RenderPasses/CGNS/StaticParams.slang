@@ -53,4 +53,7 @@ static const uint kColorFormat = COLOR_FORMAT;
 static const uint kMISHeuristic = MIS_HEURISTIC;
 static const float kMISPowerExponent = MIS_POWER_EXPONENT;
 static const uint kNumTimePartitions = NUM_TIME_PARTITIONS;
+static const bool kEnableGeometrySelection = ENABLE_GEOMETRY_SELECTION;
+static const bool kEnableIntegrandSelection = ENABLE_INTEGRAND_SELECTION;
+static const bool kEnableIntegrandPValueSelection = ENABLE_INTEGRAND_PVALUE_SELECTION;
 static const uint kSpatialNeighborSamples = SPATIAL_SAMPLE_COUNT;

@@ -59,21 +59,22 @@ FALCOR_ENUM_INFO(MISHeuristic, {
 });
 FALCOR_ENUM_REGISTER(MISHeuristic);
 
-enum class Metric : uint32_t
+enum class NeighborSelection : uint32_t
 {
-    Geometry = 0,
-    Luminosity = 1,
-    TotalWeight = 2,
-    Material = 3,
+    Geometry,        ///< Compare world position and normal using a heuristc.
+    Integrand,       ///< Compare reservoir integrand using a heuristic (color and luminance).
+    IntegrandPValue, ///< Compare reservoir integrand distributions via p-value (Welch's t-test).
 };
 
-FALCOR_ENUM_INFO(Metric, {
-    { Metric::Geometry, "Geometry" },
-    { Metric::Luminosity, "Luminosity" },
-    { Metric::TotalWeight, "TotalWeight" },
-    { Metric::Material, "Material" },
-});
-FALCOR_ENUM_REGISTER(Metric);
+FALCOR_ENUM_INFO(
+    NeighborSelection,
+    {
+        { NeighborSelection::Geometry, "Geometry" },
+        { NeighborSelection::Integrand, "Integrand" },
+        { NeighborSelection::IntegrandPValue, "IntegrandPValue" },
+    }
+);
+FALCOR_ENUM_REGISTER(NeighborSelection);
 
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.

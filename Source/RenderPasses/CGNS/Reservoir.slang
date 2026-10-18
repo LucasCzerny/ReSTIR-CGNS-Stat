@@ -59,19 +59,19 @@ struct CandidateReservoir
         bool selected = (rng * this.totalWeight < sampleWeight);
         this.integrand = selected ? sampleIntegrand : this.integrand;
 
-        // Update statistics
+        if (kEnableIntegrandPValueSelection) {
+            float invM = 1.0 / M;
 
-        float invM = 1.0 / M;
+            float prevMean = mean;
+            mean = prevMean + (samplePHat - prevMean) * invM;
 
-        float prevMean = mean;
-        mean = prevMean + (samplePHat - prevMean) * invM;
-
-        float prevVariance = variance;
-        variance = (
-            prevVariance
-            + ((samplePHat - prevMean) * (samplePHat - mean) - prevVariance)
-            * invM
-        );
+            float prevVariance = variance;
+            variance = (
+                prevVariance
+                + ((samplePHat - prevMean) * (samplePHat - mean) - prevVariance)
+                * invM
+            );
+        }
 
         return selected;
     }
@@ -120,19 +120,19 @@ struct PathReservoir
         this.integrand = selected ? integrand : this.integrand;
         this.subPixel = selected ? other.subPixel : this.subPixel;
 
-        // Update statistics
+        if (kEnableIntegrandPValueSelection) {
+            float invM = 1.0 / M;
 
-        float invM = 1.0 / M;
+            float prevMean = mean;
+            mean = prevMean + (pHat - prevMean) * invM;
 
-        float prevMean = mean;
-        mean = prevMean + (pHat - prevMean) * invM;
-
-        float prevVariance = variance;
-        variance = (
-            prevVariance
-            + ((pHat - prevMean) * (pHat - mean) - prevVariance)
-            * invM
-        );
+            float prevVariance = variance;
+            variance = (
+                prevVariance
+                + ((pHat - prevMean) * (pHat - mean) - prevVariance)
+                * invM
+            );
+        }
 
         return selected;
     }
@@ -148,24 +148,24 @@ struct PathReservoir
         bool selected = (rng * this.totalWeight < weight);
         this.integrand = selected ? candidateReservoir.integrand : this.integrand;
 
-        // Update statistics
+        if (kEnableIntegrandPValueSelection) {
+            float totalM = max(M + candidateReservoir.M, 1e-5);
+            float invTotalM = 1.0 / totalM;
 
-        float totalM = max(M + candidateReservoir.M, 1e-5);
-        float invTotalM = 1.0 / totalM;
+            float candidateReservoirRatio = candidateReservoir.M * invTotalM;
+            float totalMean = mean + (candidateReservoir.mean - mean) * candidateReservoirRatio;
 
-        float candidateReservoirRatio = candidateReservoir.M * invTotalM;
-        float totalMean = mean + (candidateReservoir.mean - mean) * candidateReservoirRatio;
+            float meanDiff = mean - totalMean;
+            float candidateMeanDiff = candidateReservoir.mean - totalMean;
 
-        float meanDiff = mean - totalMean;
-        float candidateMeanDiff = candidateReservoir.mean - totalMean;
+            float SSE = M * variance + candidateReservoir.M * candidateReservoir.variance;
+            float SSG = M * meanDiff * meanDiff + candidateReservoir.M * candidateMeanDiff * candidateMeanDiff;
+            float SST = SSE + SSG;
+            variance = SST * invTotalM;
 
-        float SSE = M * variance + candidateReservoir.M * candidateReservoir.variance;
-        float SSG = M * meanDiff * meanDiff + candidateReservoir.M * candidateMeanDiff * candidateMeanDiff;
-        float SST = SSE + SSG;
-        variance = SST * invTotalM;
-
-        mean = totalMean;
-        M = totalM;
+            mean = totalMean;
+            M = totalM;
+        }
 
         return selected;
     }
@@ -182,7 +182,6 @@ struct PathReservoir
         this.subPixel = subPixel;
     }
 
-    // what did abramowitz and stegun smoke to find this formula
     float erf(float x)
     {
         float t = 1.0 / (1.0 + 0.3275911 * abs(x));

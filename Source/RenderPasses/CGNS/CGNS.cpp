@@ -135,6 +135,10 @@ namespace
     const std::string kScatterBackupMISOption = "scatterBackupMISOption";
     const std::string kGatherOption = "gatherOption";
     const std::string kNumTimePartitions = "numTimePartitions";
+    const std::string kEnableGeometrySelection = "enableGeometrySelection";
+    const std::string kEnableIntegrandSelection = "enableIntegrandSelection";
+    const std::string kEnableIntegrandPValueSelection = "enableIntegrandPValueSelection";
+    const std::string kNeighborSelection = "neighborSelection";
 
     const uint32_t kSpatialNeighborSamples = 8192;
     }
@@ -237,9 +241,15 @@ void CGNS::parseProperties(const Properties& props)
         else if (key == kScatterBackupMISOption) mReSTIRParams.scatterBackupMISOption = value;
         else if (key == kGatherOption) mReSTIRParams.temporalGathering = value;
         else if (key == kNumTimePartitions) mReSTIRParams.numTimePartitions = value;
+        else if (key == kEnableGeometrySelection) mReSTIRParams.enableGeometrySelection = value;
+        else if (key == kEnableIntegrandSelection) mReSTIRParams.enableIntegrandSelection = value;
+        else if (key == kEnableIntegrandPValueSelection) mReSTIRParams.enableIntegrandPValueSelection = value;
+        else if (key == kNeighborSelection) setNeighborSelection(value);
 
         else logWarning("Unknown property '{}' in CGNS properties.", key);
     }
+
+    neighborSelectionGeometryFailsafe();
 
     if (props.has(kMaxSurfaceBounces))
     {
@@ -263,6 +273,30 @@ void CGNS::parseProperties(const Properties& props)
     if (props.has(kMaxSurfaceBounces) && maxSurfaceBouncesNeedsAdjustment)
     {
         logWarning("'{}' is set lower than '{}', '{}' or '{}' and will be increased.", kMaxSurfaceBounces, kMaxDiffuseBounces, kMaxSpecularBounces, kMaxTransmissionBounces);
+    }
+}
+
+CGNS::NeighborSelection CGNS::getNeighborSelection() const
+{
+    if (mReSTIRParams.enableIntegrandPValueSelection) return NeighborSelection::IntegrandPValue;
+    if (mReSTIRParams.enableIntegrandSelection) return NeighborSelection::Integrand;
+    return NeighborSelection::Geometry;
+}
+
+void CGNS::setNeighborSelection(NeighborSelection selection)
+{
+    mReSTIRParams.enableGeometrySelection = (selection == NeighborSelection::Geometry);
+    mReSTIRParams.enableIntegrandSelection = (selection == NeighborSelection::Integrand);
+    mReSTIRParams.enableIntegrandPValueSelection = (selection == NeighborSelection::IntegrandPValue);
+}
+
+void CGNS::neighborSelectionGeometryFailsafe()
+{
+    if (mReSTIRParams.enableIntegrandPValueSelection) {
+        mReSTIRParams.enableIntegrandSelection = mReSTIRParams.enableGeometrySelection = false;
+    }
+    else if (mReSTIRParams.enableIntegrandSelection) {
+        mReSTIRParams.enableGeometrySelection = false;
     }
 }
 
@@ -345,6 +379,11 @@ Properties CGNS::getProperties() const
     props[kOutputSize] = mOutputSizeSelection;
     if (mOutputSizeSelection == RenderPassHelpers::IOSize::Fixed) props[kFixedOutputSize] = mFixedOutputSize;
     props[kColorFormat] = mStaticParams.colorFormat;
+
+    // CGNS selection parameters
+    props[kEnableGeometrySelection] = mReSTIRParams.enableGeometrySelection;
+    props[kEnableIntegrandSelection] = mReSTIRParams.enableIntegrandSelection;
+    props[kEnableIntegrandPValueSelection] = mReSTIRParams.enableIntegrandPValueSelection;
 
     return props;
 }
@@ -655,38 +694,23 @@ bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
 
             if (auto cgns = spatial.group("CGNS Neighbor Selection", false))
             {
-                dirty |= cgns.checkbox("Enable Geometry Selection", mReSTIRParams.enableGeometrySelection);
-                cgns.tooltip("Use the normal and position from the gbuffer to help select neighbor reservoirs", true);
-
-                dirty |= cgns.checkbox("Enable Integrand Selection", mReSTIRParams.enableIntegrandSelection);
-                cgns.tooltip("Compare the reservoir's integrand (color and luminance) to help select neighbor reservoirs", true);
+                auto selection = getNeighborSelection();
+                if (cgns.dropdown("Selection Method", selection))
+                {
+                    setNeighborSelection(selection);
+                    mRecompile = true;
+                    dirty = true;
+                }
+                cgns.tooltip("Which compatibility test is used to score neighbor reservoirs:\n"
+                    "- Geometry: normal and position from the G-buffer.\n"
+                    "- Integrand: reservoir integrand (color and luminance) from the G-buffer.\n"
+                    "- IntegrandPValue: reservoir integrand distributions via p-value (Welch's t-test).", true);
 
                 if (mReSTIRParams.enableIntegrandSelection)
                 {
                     dirty |= cgns.var("Color Exponent", mReSTIRParams.colorExponent, 0.0f, 32.0f);
                     cgns.tooltip("Exponent applied to the color and luminance compatibility terms.", true);
                 }
-
-                dirty |= cgns.checkbox("Enable Integrand P-Value Selection", mReSTIRParams.enableIntegrandPValueSelection);
-                cgns.tooltip("Compare the reservoirs' integrand distributions with a p-value (Welch's t-test on the running mean/variance) to help select neighbor reservoirs.", true);
-
-                dirty |= cgns.checkbox("Enable Material Cutoff Selection", mReSTIRParams.enableMaterialCutoffSelection);
-                cgns.tooltip("Reject candidate neighbors whose material ID differs from the query.", true);
-
-                dirty |= cgns.checkbox("Enable Roughness Selection", mReSTIRParams.enableRoughnessSelection);
-                cgns.tooltip("Compare material roughness when scoring neighbor reservoirs.", true);
-
-                dirty |= cgns.checkbox("Enable Specular Selection", mReSTIRParams.enableSpecularSelection);
-                cgns.tooltip("Compare specular reflectance (F0 luminance) when scoring neighbor reservoirs.", true);
-
-                dirty |= cgns.checkbox("Enable Emissive Selection", mReSTIRParams.enableEmissiveSelection);
-                cgns.tooltip("Compare emissive luminance when scoring neighbor reservoirs.", true);
-
-                dirty |= cgns.checkbox("Enable Base Color Selection", mReSTIRParams.enableBaseColorSelection);
-                cgns.tooltip("Compare diffuse base color when scoring neighbor reservoirs.", true);
-
-                dirty |= cgns.checkbox("Enable Instance Selection", mReSTIRParams.enableInstanceSelection);
-                cgns.tooltip("Reject candidate neighbors from a different geometry instance.", true);
 
                 dirty |= cgns.var("Candidate Count (K)", mReSTIRParams.neighborCandidateCount, 1u, 128u);
                 cgns.tooltip("Number of disk candidates scored per pixel per iteration.", true);
@@ -2249,12 +2273,7 @@ void CGNS::selectNeighbors(RenderContext* pRenderContext, const RenderData& rend
     var["enableGeometrySelection"]       = mReSTIRParams.enableGeometrySelection;
     var["enableIntegrandSelection"]          = mReSTIRParams.enableIntegrandSelection;
     var["enableIntegrandPValueSelection"]    = mReSTIRParams.enableIntegrandPValueSelection;
-    var["enableMaterialCutoffSelection"] = mReSTIRParams.enableMaterialCutoffSelection;
-    var["enableRoughnessSelection"]      = mReSTIRParams.enableRoughnessSelection;
-    var["enableSpecularSelection"]       = mReSTIRParams.enableSpecularSelection;
-    var["enableEmissiveSelection"]       = mReSTIRParams.enableEmissiveSelection;
-    var["enableBaseColorSelection"]      = mReSTIRParams.enableBaseColorSelection;
-    var["enableInstanceSelection"]       = mReSTIRParams.enableInstanceSelection;
+
     var["gColorExponent"]                = mReSTIRParams.colorExponent;
 
     mpSelectNeighborsPass->execute(pRenderContext, {mParams.frameDim.x, mParams.frameDim.y, 1});
@@ -2357,6 +2376,9 @@ DefineList CGNS::StaticParams::getDefines(const CGNS& owner) const
 
     // Number of time partitions to scatter into.
     defines.add("NUM_TIME_PARTITIONS", std::to_string(owner.mReSTIRParams.numTimePartitions));
+    defines.add("ENABLE_GEOMETRY_SELECTION", owner.mReSTIRParams.enableGeometrySelection ? "1" : "0");
+    defines.add("ENABLE_INTEGRAND_SELECTION", owner.mReSTIRParams.enableIntegrandSelection ? "1" : "0");
+    defines.add("ENABLE_INTEGRAND_PVALUE_SELECTION", owner.mReSTIRParams.enableIntegrandPValueSelection ? "1" : "0");
 
     return defines;
 }
