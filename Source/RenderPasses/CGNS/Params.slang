@@ -76,6 +76,20 @@ FALCOR_ENUM_INFO(
 );
 FALCOR_ENUM_REGISTER(NeighborSelection);
 
+enum class Preset : uint32_t
+{
+    PT = 0,
+    DI = 1,
+    Custom = 2,
+};
+
+FALCOR_ENUM_INFO(Preset, {
+    { Preset::PT, "PT" },
+    { Preset::DI, "DI" },
+    { Preset::Custom, "Custom" },
+});
+FALCOR_ENUM_REGISTER(Preset);
+
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.
 static const uint2 kScreenTileDim = { 16, 16 };     ///< Screen-tile dimension in pixels.

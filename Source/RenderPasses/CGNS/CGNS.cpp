@@ -27,6 +27,7 @@
  **************************************************************************/
 
 #include "CGNS.h"
+#include "Params.slang"
 #include "RenderGraph/RenderPassHelpers.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
 #include "Rendering/Lights/EmissiveUniformSampler.h"
@@ -107,6 +108,8 @@ namespace
     const std::string kMaxDiffuseBounces = "maxDiffuseBounces";
     const std::string kMaxSpecularBounces = "maxSpecularBounces";
     const std::string kMaxTransmissionBounces = "maxTransmissionBounces";
+    const std::string kDICandidates = "diCandidates";
+    const std::string kMode = "mode";
 
     const std::string kSampleGenerator = "sampleGenerator";
     const std::string kFixedSeed = "fixedSeed";
@@ -139,6 +142,11 @@ namespace
     const std::string kEnableIntegrandSelection = "enableIntegrandSelection";
     const std::string kEnableIntegrandPValueSelection = "enableIntegrandPValueSelection";
     const std::string kNeighborSelection = "neighborSelection";
+
+    constexpr uint32_t kPTBounces = 9;
+    constexpr uint32_t kPTSamplesPerPixel = 1;
+    constexpr uint32_t kDIBounces = 0;
+    constexpr uint32_t kDISamplesPerPixel = kMaxSamplesPerPixel;
 
     const uint32_t kSpatialNeighborSamples = 8192;
     }
@@ -246,6 +254,8 @@ void CGNS::parseProperties(const Properties& props)
         else if (key == kEnableIntegrandPValueSelection) mReSTIRParams.enableIntegrandPValueSelection = value;
         else if (key == kNeighborSelection) setNeighborSelection(value);
 
+        else if (key == kMode) applyMode(value);
+
         else logWarning("Unknown property '{}' in CGNS properties.", key);
     }
 
@@ -300,6 +310,35 @@ void CGNS::neighborSelectionGeometryFailsafe()
     }
 }
 
+Mode CGNS::getMode() const
+{
+    if (mStaticParams.samplesPerPixel == kDISamplesPerPixel && mStaticParams.maxSurfaceBounces == kDIBounces) {
+        return Mode::DI;
+    } else if (mStaticParams.samplesPerPixel == kPTSamplesPerPixel && mStaticParams.maxSurfaceBounces == kPTBounces) {
+        return Mode::PT;
+    }
+
+    return Mode::Custom;
+}
+
+void CGNS::applyMode(Mode mode)
+{
+    uint32_t bounces = kPTBounces;
+    uint32_t samplesPerPixel = kPTSamplesPerPixel;
+
+    if (mode == Mode::DI)
+    {
+        bounces = kDIBounces;
+        samplesPerPixel = 1; //kDISamplesPerPixel;
+    }
+
+    mStaticParams.maxSurfaceBounces = bounces;
+    mStaticParams.maxDiffuseBounces = bounces;
+    mStaticParams.maxSpecularBounces = bounces;
+    mStaticParams.maxTransmissionBounces = bounces;
+    mStaticParams.samplesPerPixel = samplesPerPixel;
+}
+
 void CGNS::validateOptions()
 {
     if (mParams.specularRoughnessThreshold < 0.f || mParams.specularRoughnessThreshold > 1.f)
@@ -350,6 +389,7 @@ Properties CGNS::getProperties() const
     Properties props;
 
     // Rendering parameters
+    props[kMode] = getMode();
     props[kSamplesPerPixel] = mStaticParams.samplesPerPixel;
     props[kMaxSurfaceBounces] = mStaticParams.maxSurfaceBounces;
     props[kMaxDiffuseBounces] = mStaticParams.maxDiffuseBounces;
@@ -609,6 +649,15 @@ bool CGNS::renderScatterVisualizationUI(Gui::Widgets& widget)
 bool CGNS::renderReSTIRUI(Gui::Widgets& widget)
 {
     bool dirty = false;
+
+    auto mode = getMode();
+    if (widget.dropdown("Mode", mode))
+    {
+        applyMode(mode);
+        mRecompile = true;
+        dirty = true;
+    }
+    widget.tooltip("ReSTIR DI or ReSTIR PT mode");
 
     if (auto temporal = widget.group("Temporal Resampling", false))
     {

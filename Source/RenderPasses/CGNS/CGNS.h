@@ -200,6 +200,10 @@ private:
     void setNeighborSelection(NeighborSelection selection);
     void neighborSelectionGeometryFailsafe();
 
+    // ReSTIR preset: DI or PT
+    Preset getPreset() const;
+    void applyPreset(Preset mode);
+
     // Configuration
     PathTracerParams                    mParams;                            ///< Runtime path tracer parameters.
     StaticParams                        mStaticParams;                      ///< Static parameters. These are set as compile-time constants in the shaders.
