@@ -76,24 +76,25 @@ FALCOR_ENUM_INFO(
 );
 FALCOR_ENUM_REGISTER(NeighborSelection);
 
-enum class Preset : uint32_t
+enum class Mode : uint32_t
 {
     PT = 0,
     DI = 1,
-    Custom = 2,
 };
 
-FALCOR_ENUM_INFO(Preset, {
-    { Preset::PT, "PT" },
-    { Preset::DI, "DI" },
-    { Preset::Custom, "Custom" },
+FALCOR_ENUM_INFO(Mode, {
+    { Mode::PT, "PT" },
+    { Mode::DI, "DI" },
 });
-FALCOR_ENUM_REGISTER(Preset);
+FALCOR_ENUM_REGISTER(Mode);
 
 // Define tile sizes in pixels.
 // The frame is divided into tiles stored in scanline order, with pixels in tiles enumerated in Morton order.
 static const uint2 kScreenTileDim = { 16, 16 };     ///< Screen-tile dimension in pixels.
 static const uint2 kScreenTileBits = { 4, 4 };      ///< Bits needed to describe pixel position within a screen-tile.
+
+// Define the DI candidate limit.
+static const uint kMaxDICandidates = 32;            ///< Maximum supported candidates. RTXDI typically uses 16-32
 
 // Define path configuration limits.
 static const uint kMaxSamplesPerPixel = 16;         ///< Maximum supported sample count. We can use tiling to support large sample counts if needed.

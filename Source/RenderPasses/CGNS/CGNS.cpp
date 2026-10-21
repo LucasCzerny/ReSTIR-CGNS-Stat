@@ -143,11 +143,6 @@ namespace
     const std::string kEnableIntegrandPValueSelection = "enableIntegrandPValueSelection";
     const std::string kNeighborSelection = "neighborSelection";
 
-    constexpr uint32_t kPTBounces = 9;
-    constexpr uint32_t kPTSamplesPerPixel = 1;
-    constexpr uint32_t kDIBounces = 0;
-    constexpr uint32_t kDISamplesPerPixel = kMaxSamplesPerPixel;
-
     const uint32_t kSpatialNeighborSamples = 8192;
     }
 
@@ -217,6 +212,8 @@ void CGNS::parseProperties(const Properties& props)
         else if (key == kMaxDiffuseBounces) mStaticParams.maxDiffuseBounces = value;
         else if (key == kMaxSpecularBounces) mStaticParams.maxSpecularBounces = value;
         else if (key == kMaxTransmissionBounces) mStaticParams.maxTransmissionBounces = value;
+        else if (key == kMode) applyMode(value);
+        else if (key == kDICandidates) mStaticParams.diCandidates = value;
 
         // Sampling parameters
         else if (key == kSampleGenerator) mStaticParams.sampleGenerator = value;
@@ -253,8 +250,6 @@ void CGNS::parseProperties(const Properties& props)
         else if (key == kEnableIntegrandSelection) mReSTIRParams.enableIntegrandSelection = value;
         else if (key == kEnableIntegrandPValueSelection) mReSTIRParams.enableIntegrandPValueSelection = value;
         else if (key == kNeighborSelection) setNeighborSelection(value);
-
-        else if (key == kMode) applyMode(value);
 
         else logWarning("Unknown property '{}' in CGNS properties.", key);
     }
@@ -312,31 +307,12 @@ void CGNS::neighborSelectionGeometryFailsafe()
 
 Mode CGNS::getMode() const
 {
-    if (mStaticParams.samplesPerPixel == kDISamplesPerPixel && mStaticParams.maxSurfaceBounces == kDIBounces) {
-        return Mode::DI;
-    } else if (mStaticParams.samplesPerPixel == kPTSamplesPerPixel && mStaticParams.maxSurfaceBounces == kPTBounces) {
-        return Mode::PT;
-    }
-
-    return Mode::Custom;
+    return mStaticParams.mode;
 }
 
 void CGNS::applyMode(Mode mode)
 {
-    uint32_t bounces = kPTBounces;
-    uint32_t samplesPerPixel = kPTSamplesPerPixel;
-
-    if (mode == Mode::DI)
-    {
-        bounces = kDIBounces;
-        samplesPerPixel = 1; //kDISamplesPerPixel;
-    }
-
-    mStaticParams.maxSurfaceBounces = bounces;
-    mStaticParams.maxDiffuseBounces = bounces;
-    mStaticParams.maxSpecularBounces = bounces;
-    mStaticParams.maxTransmissionBounces = bounces;
-    mStaticParams.samplesPerPixel = samplesPerPixel;
+    mStaticParams.mode = mode;
 }
 
 void CGNS::validateOptions()
@@ -395,6 +371,8 @@ Properties CGNS::getProperties() const
     props[kMaxDiffuseBounces] = mStaticParams.maxDiffuseBounces;
     props[kMaxSpecularBounces] = mStaticParams.maxSpecularBounces;
     props[kMaxTransmissionBounces] = mStaticParams.maxTransmissionBounces;
+    props[kMode] = mStaticParams.mode;
+    props[kDICandidates] = mStaticParams.diCandidates;
 
     // Sampling parameters
     props[kSampleGenerator] = mStaticParams.sampleGenerator;
@@ -798,27 +776,32 @@ bool CGNS::renderRenderingUI(Gui::Widgets& widget)
     dirty |= widget.var("Simulated Frame Time", mCameraParams.artificialFrameTime, 0.01f, 10000.0f);
     widget.tooltip("Artificially defined frame time between the camera frames.", true);
 
-    dirty |= widget.var("Samples / Pixel", mStaticParams.samplesPerPixel, 1u, kMaxSamplesPerPixel);
+    if (getMode() == Mode::DI) {
+        dirty |= widget.var("DI Candidates", mStaticParams.diCandidates, 1u, kMaxDICandidates);
+        widget.tooltip("Number of light candidates per pixel.", true);
+    } else {
+        dirty |= widget.var("Samples / Pixel", mStaticParams.samplesPerPixel, 1u, kMaxSamplesPerPixel);
 
-    if (widget.var("Max Surface Bounces", mStaticParams.maxSurfaceBounces, 0u, kMaxBounces))
-    {
-        // Allow users to change the max surface bounce parameter in the UI to clamp all other surface bounce parameters.
-        mStaticParams.maxDiffuseBounces = std::min(mStaticParams.maxDiffuseBounces, mStaticParams.maxSurfaceBounces);
-        mStaticParams.maxSpecularBounces = std::min(mStaticParams.maxSpecularBounces, mStaticParams.maxSurfaceBounces);
-        mStaticParams.maxTransmissionBounces = std::min(mStaticParams.maxTransmissionBounces, mStaticParams.maxSurfaceBounces);
-        dirty = true;
+        if (widget.var("Max Surface Bounces", mStaticParams.maxSurfaceBounces, 0u, kMaxBounces))
+        {
+            // Allow users to change the max surface bounce parameter in the UI to clamp all other surface bounce parameters.
+            mStaticParams.maxDiffuseBounces = std::min(mStaticParams.maxDiffuseBounces, mStaticParams.maxSurfaceBounces);
+            mStaticParams.maxSpecularBounces = std::min(mStaticParams.maxSpecularBounces, mStaticParams.maxSurfaceBounces);
+            mStaticParams.maxTransmissionBounces = std::min(mStaticParams.maxTransmissionBounces, mStaticParams.maxSurfaceBounces);
+            dirty = true;
+        }
+        widget.tooltip("Maximum number of surface bounces (diffuse + specular + transmission).\n"
+            "Note that specular reflection events from a material with a roughness greater than specularRoughnessThreshold are also classified as diffuse events.");
+
+        dirty |= widget.var("Max Diffuse Bounces", mStaticParams.maxDiffuseBounces, 0u, kMaxBounces);
+        widget.tooltip("Maximum number of diffuse bounces.\n0 = direct only\n1 = one indirect bounce etc.");
+
+        dirty |= widget.var("Max Specular Bounces", mStaticParams.maxSpecularBounces, 0u, kMaxBounces);
+        widget.tooltip("Maximum number of specular bounces.\n0 = direct only\n1 = one indirect bounce etc.");
+
+        dirty |= widget.var("Max Transmission Bounces", mStaticParams.maxTransmissionBounces, 0u, kMaxBounces);
+        widget.tooltip("Maximum number of transmission bounces.\n0 = no transmission\n1 = one transmission bounce etc.");
     }
-    widget.tooltip("Maximum number of surface bounces (diffuse + specular + transmission).\n"
-        "Note that specular reflection events from a material with a roughness greater than specularRoughnessThreshold are also classified as diffuse events.");
-
-    dirty |= widget.var("Max Diffuse Bounces", mStaticParams.maxDiffuseBounces, 0u, kMaxBounces);
-    widget.tooltip("Maximum number of diffuse bounces.\n0 = direct only\n1 = one indirect bounce etc.");
-
-    dirty |= widget.var("Max Specular Bounces", mStaticParams.maxSpecularBounces, 0u, kMaxBounces);
-    widget.tooltip("Maximum number of specular bounces.\n0 = direct only\n1 = one indirect bounce etc.");
-
-    dirty |= widget.var("Max Transmission Bounces", mStaticParams.maxTransmissionBounces, 0u, kMaxBounces);
-    widget.tooltip("Maximum number of transmission bounces.\n0 = no transmission\n1 = one transmission bounce etc.");
 
     // Sampling options.
 
@@ -876,17 +859,19 @@ bool CGNS::renderRenderingUI(Gui::Widgets& widget)
         dirty |= widget.checkbox("Alpha Test", mStaticParams.useAlphaTest);
         widget.tooltip("Use alpha testing on non-opaque triangles.");
 
-        dirty |= widget.checkbox("Adjust Secondary Hit Shading Normals", mStaticParams.adjustShadingNormals);
-        widget.tooltip("Enables adjustment of the shading normals to reduce the risk of black pixels due to back-facing vectors.\nDoes not apply to primary hits which is configured in GBuffer.", true);
-
         dirty |= widget.var("Max Nested Materials", mStaticParams.maxNestedMaterials, 2u, 4u);
         widget.tooltip("Maximum supported number of nested materials.");
 
         dirty |= widget.checkbox("Use Lights in Dielectric Volumes", mStaticParams.useLightsInDielectricVolumes);
         widget.tooltip("Use lights inside of volumes (transmissive materials). We typically don't want this because lights are occluded by the interface.");
 
-        dirty |= widget.checkbox("Disable Caustics", mStaticParams.disableCaustics);
-        widget.tooltip("Disable sampling of caustic light paths (i.e. specular events after diffuse events).");
+        if (getMode() == Mode::PT) {
+            dirty |= widget.checkbox("Adjust Secondary Hit Shading Normals", mStaticParams.adjustShadingNormals);
+            widget.tooltip("Enables adjustment of the shading normals to reduce the risk of black pixels due to back-facing vectors.\nDoes not apply to primary hits which is configured in GBuffer.", true);
+
+            dirty |= widget.checkbox("Disable Caustics", mStaticParams.disableCaustics);
+            widget.tooltip("Disable sampling of caustic light paths (i.e. specular events after diffuse events).");
+        }
 
         runtimeDirty |= widget.var("Specular Roughness Threshold", mParams.specularRoughnessThreshold, 0.f, 1.f);
         widget.tooltip("Specular reflection events are only classified as specular if the material's roughness value is equal or smaller than this threshold. Otherwise they are classified diffuse.");
@@ -2315,6 +2300,8 @@ DefineList CGNS::StaticParams::getDefines(const CGNS& owner) const
 
     // Path tracer configuration.
     defines.add("SAMPLES_PER_PIXEL", std::to_string(samplesPerPixel)); // 0 indicates a variable sample count
+    defines.add("DI_CANDIDATES", std::to_string(diCandidates));
+    defines.add("MODE", std::to_string(int(mode)));
     defines.add("NUM_RENDER_PASSES", std::to_string(kNumPassesWithRNG));
     defines.add("MAX_SURFACE_BOUNCES", std::to_string(maxSurfaceBounces));
     defines.add("MAX_DIFFUSE_BOUNCES", std::to_string(maxDiffuseBounces));

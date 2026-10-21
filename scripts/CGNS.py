@@ -12,6 +12,8 @@ def render_graph_CGNS():
 
     CGNSParams = {
         'samplesPerPixel': 1,
+        'diMode': False,
+        'diCandidates': 32,
         'enableTemporalResampling': True,
         'enableSpatialResampling': True,
         'temporalReuse': "ScatterOnly",

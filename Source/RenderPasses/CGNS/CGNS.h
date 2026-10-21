@@ -129,6 +129,8 @@ private:
         uint32_t    maxDiffuseBounces = 9;                      ///< Max number of diffuse bounces (0 = direct only), up to kMaxBounces.
         uint32_t    maxSpecularBounces = 9;                     ///< Max number of specular bounces (0 = direct only), up to kMaxBounces.
         uint32_t    maxTransmissionBounces = 9;                 ///< Max number of transmission bounces (0 = none), up to kMaxBounces.
+        uint32_t    diCandidates = 32;                          ///< Number of DI candidates per pixel.
+        Mode        mode = Mode::PT;                            ///< ReSTIR mode (PT or DI).
 
         // Sampling parameters
         uint32_t    sampleGenerator = SAMPLE_GENERATOR_TINY_UNIFORM;                ///< Pseudorandom sample generator type.
@@ -200,9 +202,9 @@ private:
     void setNeighborSelection(NeighborSelection selection);
     void neighborSelectionGeometryFailsafe();
 
-    // ReSTIR preset: DI or PT
-    Preset getPreset() const;
-    void applyPreset(Preset mode);
+    // ReSTIR mode: DI or PT
+    Mode getMode() const;
+    void applyMode(Mode mode);
 
     // Configuration
     PathTracerParams                    mParams;                            ///< Runtime path tracer parameters.

@@ -220,6 +220,82 @@ struct PathTracer
         path.prevHitPos = camera.data.posW + lensLocal;
     }
 
+    /** Direct-lighting-only ("DI mode") candidate generation mirroring RTXDI.
+        \param[in,out] path Path state for the current pixel
+        \param[in] sd Shading data at the primary hit
+        \param[in] mi Material instance at the primary hit
+        \param[in] lobeTypes Bit mask of LobeType at the primary hit
+        \param[in] isCurveHit True if the primary hit is on a curve primitive
+        \param[in] isCurvePolyTubeHit True if the primary hit is on a poly-tube curve primitive
+    */
+    void generateDICandidates(inout PathState path, const ShadingData sd, const IMaterialInstance mi, const uint lobeTypes, const bool isCurveHit, const bool isCurvePolyTubeHit)
+    {
+        PathVertex vertex = PathVertex(path.getVertexIndex(), sd.posW, sd.faceN, sd.frontFacing);
+
+        bool sampleUpperHemisphere = isCurveHit || isCurvePolyTubeHit || ((lobeTypes & (uint)LobeType::NonDeltaReflection) != 0);
+        if (!kUseLightsInDielectricVolumes && path.isInsideDielectricVolume()) sampleUpperHemisphere = false;
+        bool sampleLowerHemisphere = isCurveHit || isCurvePolyTubeHit || ((lobeTypes & (uint)LobeType::NonDeltaTransmission) != 0);
+        path.setLightSampled(sampleUpperHemisphere, sampleLowerHemisphere);
+
+        const float candidateMIS = 1.0f / float(kDICandidates);
+
+        LightSample selectedLs = {};
+        bool selectedIsNEE = false;
+
+        for (uint i = 0; i < kDICandidates; ++i)
+        {
+            LightSample ls = {};
+            if (!generateLightSample(vertex, sampleUpperHemisphere, sampleLowerHemisphere, path.sg, ls)) continue;
+
+            float3 contribution = mi.eval(sd, ls.dir, path.sg) * ls.Li;
+            if (!any(contribution > 0.f)) continue;
+
+            bool selected = path.reservoir.addVertex(path.sg, candidateMIS, path.reconnection.earlyThroughput * path.thp * contribution);
+            if (selected)
+            {
+                selectedLs = ls;
+                selectedIsNEE = true;
+            }
+        }
+
+        if (!selectedIsNEE) return;
+
+        if (!traceVisibilityRay(selectedLs.getVisibilityRay()))
+        {
+            path.reservoir.integrand = float3(0.f);
+            return;
+        }
+
+        path.reservoir.selectedReconnection = path.reconnection;
+        path.reservoir.selectedReconnection.pathLength = path.getVertexIndex() + 1;
+        path.reservoir.selectedReconnection.lightIsNEE = true;
+        path.reservoir.selectedReconnection.irradiance = selectedLs.Li * selectedLs.pdf;
+        path.reservoir.selectedReconnection.transmissionEvent = dot(sd.faceN, sd.V) * dot(sd.faceN, selectedLs.dir) < 0;
+        path.reservoir.selectedReconnection.lightIsDistant = (selectedLs.lightType == (uint)LightType::EnvMap);
+
+        if (selectedLs.lightType == (uint)LightType::EnvMap)
+        {
+            path.reservoir.selectedReconnection.secondHit.data.x = 0;
+            path.reservoir.selectedReconnection.secondHit.data.yzw = asuint(selectedLs.dir);
+            path.reservoir.selectedReconnection.secondaryPathJacobian = selectedLs.pdf;
+            path.reservoir.selectedReconnection.lightPdf = selectedLs.pdf;
+        }
+        if (selectedLs.lightType == (uint)LightType::Emissive)
+        {
+            TriangleHit neeTriangleHit;
+            uint2 meshPrimID = gScene.lightCollection.getSceneMeshPrimID(selectedLs.triangleId);
+            GeometryInstanceID neeGeoInstanceId;
+            neeGeoInstanceId.index = meshPrimID.x;
+            neeTriangleHit.instanceID = neeGeoInstanceId;
+            neeTriangleHit.primitiveIndex = meshPrimID.y;
+            neeTriangleHit.barycentrics = selectedLs.barycentrics;
+            path.reservoir.selectedReconnection.secondHit = HitInfo(neeTriangleHit);
+
+            path.reservoir.selectedReconnection.secondaryPathJacobian = selectedLs.pdf * selectedLs.geometryTerm;
+            path.reservoir.selectedReconnection.lightPdf = selectedLs.pdf * selectedLs.geometryTerm; // Area measure.
+        }
+    }
+
     /** Generate the path state for a primary hit in screen space.
         This is treated equivalent to subsequent path vertices to reduce code divergence.
         \param[out] path Path state before the primary hit.
@@ -993,6 +1069,14 @@ struct PathTracer
 
         // Check if we should apply NEE.
         const bool applyNEE = hasNonDeltaLobes;
+
+         // Direct-lighting-only mode: resample light candidates at the primary hit and stop (no NEE/BSDF continuation).
+        if (kMode && isPrimaryHit)
+        {
+            if (applyNEE) generateDICandidates(path, sd, mi, lobeTypes, isCurveHit, isCurvePolyTubeHit);
+            path.terminate();
+            return sd.posW;
+        }
 
         // TODO: Support multiple shadow rays.
         path.setLightSampled(false, false);

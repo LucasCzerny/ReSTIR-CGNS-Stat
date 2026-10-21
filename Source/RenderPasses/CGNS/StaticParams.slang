@@ -38,6 +38,8 @@ __exported import Rendering.Materials.TexLODTypes;
 #endif
 
 static const uint kSamplesPerPixel = SAMPLES_PER_PIXEL;
+static const uint kDICandidates = DI_CANDIDATES;
+static const uint kMode = MODE;
 static const uint kNumRenderPasses = NUM_RENDER_PASSES;
 static const uint kMaxSurfaceBounces = MAX_SURFACE_BOUNCES;
 static const uint kMaxDiffuseBounces = MAX_DIFFUSE_BOUNCES;
